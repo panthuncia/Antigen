@@ -18,19 +18,20 @@ public class CircularPreviousDialogueAnalyzer : IContextualRecordAnalyzer<IDialo
     public void AnalyzeRecord(ContextualRecordAnalyzerParams<IDialogResponsesGetter> param)
     {
         var dialogResponses = param.Record;
-        var dialogCache = new HashSet<FormKey>();
+        // Made only for a response with previous dialog to follow: most have none.
+        HashSet<FormKey>? dialogCache = null;
 
         var previousDialog = dialogResponses.PreviousDialog.TryResolve(param.LinkCache);
-        while (previousDialog?.PreviousDialog is not null)
+        while (previousDialog?.PreviousDialog is { } next)
         {
-            if (!dialogCache.Add(previousDialog.FormKey))
+            if (!(dialogCache ??= []).Add(previousDialog.FormKey))
             {
                 param.AddTopic(
                     CircularPreviousDialogue.Format(dialogResponses, previousDialog));
                 return;
             }
 
-            previousDialog = previousDialog.PreviousDialog.TryResolve(param.LinkCache);
+            previousDialog = next.TryResolve(param.LinkCache);
         }
     }
 
