@@ -21,16 +21,25 @@ public interface ICachePlan
     /// <summary>Makes the parts from <paramref name="start"/> to before <paramref name="end"/>; called on several threads at once, for different parts.</summary>
     void Build(int start, int end);
 
-    /// <summary>The cache, once every part is made.</summary>
+    /// <summary>
+    /// The cache, once every part is made; or, for a cache made in stages, the plan of its next stage, whose parts are
+    /// only known now.
+    /// </summary>
     object Seal();
 }
 
 public static class CachePlanExtensions
 {
-    /// <summary>Makes a plan's parts in parallel, then the cache.</summary>
+    /// <summary>Makes a plan's parts in parallel, then the cache: each stage's, when it's made in stages.</summary>
     public static object BuildAll(this ICachePlan plan)
     {
-        Parallel.For(0, plan.Count, i => plan.Build(i, i + 1));
-        return plan.Seal();
+        while (true)
+        {
+            var current = plan;
+            Parallel.For(0, current.Count, i => current.Build(i, i + 1));
+            var sealed_ = current.Seal();
+            if (sealed_ is not ICachePlan next) return sealed_;
+            plan = next;
+        }
     }
 }
