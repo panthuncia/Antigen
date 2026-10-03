@@ -1,4 +1,6 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
@@ -6,8 +8,10 @@ using Noggog;
 
 namespace Antigen.Skyrim.Record.Cell;
 
-public class OwnershipAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class OwnershipAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<IPlacedGetter, IFormLinkNullableGetter<IOwnerGetter>> RedundantOwnership = MutagenTopicBuilder.FromDiscussion(
             366,
             "Redundant Ownership",
@@ -19,7 +23,7 @@ public class OwnershipAnalyzer : IContextualRecordAnalyzer<ICellGetter>
         var cell = param.Record;
         if (cell.Owner.IsNull) return;
 
-        foreach (var placed in cell.GetAllPlaced(param.LinkCache))
+        foreach (var placed in param.ResolveCache<ICellPlacedCache>().Placed(cell))
         {
             var owner = placed switch
             {

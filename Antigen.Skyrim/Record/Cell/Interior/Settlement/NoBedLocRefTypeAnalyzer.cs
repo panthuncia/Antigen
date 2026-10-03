@@ -1,11 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior.Settlement;
 
-public class NoBedLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class NoBedLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<IPlacedObjectGetter> NoBedLocRefType = MutagenTopicBuilder.FromDiscussion(
             293,
             "No Bed Location Reference Type",
@@ -27,7 +31,7 @@ public class NoBedLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>
         // Skip non-settlement cells
         if (!cell.IsSettlementCell(param.LinkCache)) return;
 
-        foreach (var placedObject in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedObjectGetter>())
+        foreach (var placedObject in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedObjectGetter>())
         {
             if (placedObject.IsDeleted) continue;
 

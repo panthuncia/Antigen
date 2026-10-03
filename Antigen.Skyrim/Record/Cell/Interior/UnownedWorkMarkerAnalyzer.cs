@@ -1,3 +1,5 @@
+using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
@@ -5,8 +7,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior;
 
-public class UnownedWorkMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class UnownedWorkMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<IPlacedObjectGetter, ICellGetter> UnownedWorkMorker = MutagenTopicBuilder.FromDiscussion(
             210,
             "Unowned Work Marker in Owned Cell",
@@ -28,7 +32,7 @@ public class UnownedWorkMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>
         if (cell.IsExteriorCell()) return;
         if (cell.Owner.IsNull) return;
 
-        foreach (var placedObject in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedObjectGetter>())
+        foreach (var placedObject in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedObjectGetter>())
         {
             if (placedObject.IsDeleted) continue;
 

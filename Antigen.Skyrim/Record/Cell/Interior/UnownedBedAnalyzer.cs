@@ -1,11 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior;
 
-public class UnownedBedAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class UnownedBedAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<IPlacedObjectGetter, ICellGetter> UnownedBed = MutagenTopicBuilder.FromDiscussion(
             209,
             "Unowned Bed in Owned Cell",
@@ -22,7 +26,7 @@ public class UnownedBedAnalyzer : IContextualRecordAnalyzer<ICellGetter>
         // If the cell is public or unowned, the bed can be unowned too
         if (cell.IsPublic() || cell.Owner.IsNull) return;
 
-        foreach (var placedObject in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedObjectGetter>())
+        foreach (var placedObject in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedObjectGetter>())
         {
             if (placedObject.IsDeleted) continue;
 

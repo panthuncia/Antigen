@@ -1,11 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior;
 
-public class NorthMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class NorthMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition NoNorthMarker = MutagenTopicBuilder.FromDiscussion(
             262,
             "No North Marker",
@@ -26,7 +30,7 @@ public class NorthMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>
         if (cell.IsExteriorCell()) return;
         if (cell.IsTestingCell()) return;
 
-        var northMarkers = cell.GetAllPlaced(param.LinkCache)
+        var northMarkers = param.ResolveCache<ICellPlacedCache>().Placed(cell)
             .OfType<IPlacedObjectGetter>()
             .Where(placed => placed.IsDeleted == false)
             .Where(placed => placed.Base.FormKey == FormKeys.SkyrimSE.Skyrim.Static.NorthMarker.FormKey)

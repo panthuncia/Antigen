@@ -1,11 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior.Settlement;
 
-public class NoBossLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class NoBossLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<IPlacedNpcGetter> NoBossLocRefType = MutagenTopicBuilder.FromDiscussion(
             294,
             "No Boss Location Reference Type",
@@ -21,7 +25,7 @@ public class NoBossLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>
         // Skip non-settlement cells
         if (!cell.IsSettlementCell(param.LinkCache)) return;
 
-        foreach (var placedNpc in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedNpcGetter>())
+        foreach (var placedNpc in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedNpcGetter>())
         {
             // Skip NPCs that are deleted or initially disabled
             if (placedNpc.IsDeleted) continue;

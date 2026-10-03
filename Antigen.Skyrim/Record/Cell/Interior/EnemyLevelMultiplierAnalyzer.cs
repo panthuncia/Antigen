@@ -1,11 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior;
 
-public class EnemyLevelMultiplierAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class EnemyLevelMultiplierAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<int, int> HasTooFewLeveledEnemies = MutagenTopicBuilder.FromDiscussion(
             399,
             "Too Few Leveled Enemies In Dungeon",
@@ -21,7 +25,7 @@ public class EnemyLevelMultiplierAnalyzer : IContextualRecordAnalyzer<ICellGette
 
         var totalNpcs = 0;
         var leveledNpcs = 0;
-        foreach (var placedNpc in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedNpcGetter>())
+        foreach (var placedNpc in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedNpcGetter>())
         {
             totalNpcs++;
 
