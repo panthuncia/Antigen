@@ -29,7 +29,7 @@ public class ImmutableExteriorCellCache(ILinkCache linkCache) : IExteriorCellCac
     private readonly LazyEntryCache<FormKey, WorldspaceLookup> _worldLookup =
         new(worldspace => CreateLookupForWorld(linkCache, worldspace));
 
-    private static WorldspaceLookup CreateLookupForWorld(ILinkCache linkCache, FormKey worldspace)
+    internal static WorldspaceLookup CreateLookupForWorld(ILinkCache linkCache, FormKey worldspace)
     {
         var lookup = new Dictionary<P2Int, IFormLinkGetter<ICellGetter>>();
 

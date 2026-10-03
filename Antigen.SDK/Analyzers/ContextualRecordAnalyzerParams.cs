@@ -15,6 +15,10 @@ public readonly struct ContextualRecordAnalyzerParams<TMajor>
     public readonly ILinkCache LinkCache;
     public readonly ILoadOrderGetter<IModListingGetter<IModGetter>> LoadOrder;
     private readonly ModKey _modKey;
+
+    /// <summary>The plugin whose version of the record this is.</summary>
+    public ModKey ModKey => _modKey;
+
     public readonly TMajor Record;
     private readonly IReportDropbox _reportDropbox;
     private readonly IProvideCaches _provideCaches;
