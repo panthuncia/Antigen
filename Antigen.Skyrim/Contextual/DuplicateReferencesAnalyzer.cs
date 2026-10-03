@@ -6,7 +6,7 @@ using Noggog;
 
 namespace Antigen.Skyrim.Contextual;
 
-public class DuplicateReferencesAnalyzer : IContextualAnalyzer
+public class DuplicateReferencesAnalyzer : IPartitionedContextualAnalyzer
 {
     public static readonly TopicDefinition<ICellGetter, IFormLinkNullableGetter<IPlaceableObjectGetter>> DuplicateReferences = MutagenTopicBuilder.FromDiscussion(
             207,
@@ -28,6 +28,13 @@ public class DuplicateReferencesAnalyzer : IContextualAnalyzer
 
     public void Analyze(ContextualAnalyzerParams param)
     {
+        var plan = Plan(param);
+        plan.Analyze(param, 0, plan.Count);
+    }
+
+    /// <summary>The winning cells, each a part.</summary>
+    public IContextualAnalysisPlan Plan(ContextualAnalyzerParams param)
+    {
         // Each plugin's place in the load order, to blame a duplicate on the last plugin among its references' winners:
         // the one whose loading makes it. (Blaming the base object's winner blamed the wrong plugin, and threw when the
         // base isn't in the load order, ending the search over every cell after it.)
@@ -36,50 +43,64 @@ public class DuplicateReferencesAnalyzer : IContextualAnalyzer
         {
             order.TryAdd(listing.ModKey, order.Count);
         }
+        return new Cells(order, [.. param.LinkCache.PriorityOrder.WinningOverrides<ICellGetter>()]);
+    }
 
-        foreach (var cell in param.LinkCache.PriorityOrder.WinningOverrides<ICellGetter>())
+    private sealed class Cells(Dictionary<ModKey, int> order, ICellGetter[] cells) : IContextualAnalysisPlan
+    {
+        public int Count => cells.Length;
+
+        public void Analyze(ContextualAnalyzerParams param, int start, int end)
         {
-            // Group all placed objects by their placement and scale
-            var duplicateGroups = cell.GetAllPlaced(param.LinkCache)
-                .Where(placed => placed is { IsDeleted: false, Placement: not null })
-                .OfType<IPlacedObjectGetter>()
-                .GroupBy(x => x, DuplicatePlacedComparer);
-
-            foreach (var duplicateGroup in duplicateGroups)
+            for (var i = start; i < end; i++)
             {
-                var duplicates = duplicateGroup.ToArray();
-                if (duplicates.Length <= 1) continue;
-
-                // TODO: Exclude any placed objects with references to it
-                var dispensableDuplicates = duplicates
-                    .Where(placed => placed is { VirtualMachineAdapter: null, EnableParent: null, NavigationDoorLink: null, Patrol: null, LinkedReferences.Count: 0 })
-                    .Where(placed => placed.SkyrimMajorRecordFlags.HasFlag((SkyrimMajorRecord.SkyrimMajorRecordFlag) PlacedObject.DefaultMajorFlag.Persistent))
-                    .ToList();
-
-                // All duplicates are indispensable
-                if (dispensableDuplicates.Count == 0) continue;
-
-                // Keep the first duplicate
-                List<IPlacedObjectGetter> keptDuplicates;
-                List<IPlacedObjectGetter> removedDuplicates;
-                if (dispensableDuplicates.Count == duplicates.Length)
-                {
-                    keptDuplicates = [dispensableDuplicates[0]];
-                    removedDuplicates = dispensableDuplicates.Skip(1).ToList();
-                }
-                else
-                {
-                    keptDuplicates = duplicates.Except(dispensableDuplicates).ToList();
-                    removedDuplicates = dispensableDuplicates;
-                }
-
-                param.AddTopic(
-                    MadeBy(param, order, duplicates, cell),
-                    duplicateGroup.Key,
-                    DuplicateReferences.Format(cell, duplicateGroup.Key.Base),
-                    ("Keep", keptDuplicates),
-                    ("Remove", removedDuplicates));
+                AnalyzeCell(param, order, cells[i]);
             }
+        }
+    }
+
+    private static void AnalyzeCell(ContextualAnalyzerParams param, Dictionary<ModKey, int> order, ICellGetter cell)
+    {
+        // Group all placed objects by their placement and scale
+        var duplicateGroups = cell.GetAllPlaced(param.LinkCache)
+            .Where(placed => placed is { IsDeleted: false, Placement: not null })
+            .OfType<IPlacedObjectGetter>()
+            .GroupBy(x => x, DuplicatePlacedComparer);
+
+        foreach (var duplicateGroup in duplicateGroups)
+        {
+            var duplicates = duplicateGroup.ToArray();
+            if (duplicates.Length <= 1) continue;
+
+            // TODO: Exclude any placed objects with references to it
+            var dispensableDuplicates = duplicates
+                .Where(placed => placed is { VirtualMachineAdapter: null, EnableParent: null, NavigationDoorLink: null, Patrol: null, LinkedReferences.Count: 0 })
+                .Where(placed => placed.SkyrimMajorRecordFlags.HasFlag((SkyrimMajorRecord.SkyrimMajorRecordFlag) PlacedObject.DefaultMajorFlag.Persistent))
+                .ToList();
+
+            // All duplicates are indispensable
+            if (dispensableDuplicates.Count == 0) continue;
+
+            // Keep the first duplicate
+            List<IPlacedObjectGetter> keptDuplicates;
+            List<IPlacedObjectGetter> removedDuplicates;
+            if (dispensableDuplicates.Count == duplicates.Length)
+            {
+                keptDuplicates = [dispensableDuplicates[0]];
+                removedDuplicates = dispensableDuplicates.Skip(1).ToList();
+            }
+            else
+            {
+                keptDuplicates = duplicates.Except(dispensableDuplicates).ToList();
+                removedDuplicates = dispensableDuplicates;
+            }
+
+            param.AddTopic(
+                MadeBy(param, order, duplicates, cell),
+                duplicateGroup.Key,
+                DuplicateReferences.Format(cell, duplicateGroup.Key.Base),
+                ("Keep", keptDuplicates),
+                ("Remove", removedDuplicates));
         }
     }
 

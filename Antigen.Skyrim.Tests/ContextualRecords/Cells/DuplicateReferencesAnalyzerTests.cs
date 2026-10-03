@@ -17,7 +17,8 @@ namespace Antigen.Skyrim.Tests.ContextualRecords.Cells;
 
 /// <summary>
 /// A duplicate reference is blamed on the last plugin among its references' winners, the one whose loading makes it, and
-/// a reference whose base object isn't in the load order neither fails the search nor hides the cells after it.
+/// a reference whose base object isn't in the load order neither fails the search nor hides the cells after it. Analyzed
+/// in parts, a cell each, on several threads at once, it reports what it reports analyzed whole.
 /// </summary>
 public class DuplicateReferencesAnalyzerTests
 {
@@ -62,6 +63,46 @@ public class DuplicateReferencesAnalyzerTests
         var reports = Analyze(master);
 
         reports.Select(r => r.Mod).ShouldBe([Base, Base]);
+    }
+
+    [Fact]
+    public void Analyzed_in_parts_on_several_threads_it_reports_what_it_reports_whole()
+    {
+        var master = new SkyrimMod(Base, SkyrimRelease.SkyrimSE);
+        var patch = new SkyrimMod(Patch, SkyrimRelease.SkyrimSE);
+        var random = new Random(7);
+        var statics = Enumerable.Range(0, 3).Select(i => master.Statics.AddNew($"Static{i}")).ToArray();
+        for (var c = 0; c < 40; c++)
+        {
+            var cell = AddCell(master, $"Room{c}");
+            var placed = Enumerable.Range(0, random.Next(0, 8)).Select(_ => Place(master, cell, statics[random.Next(3)].FormKey, x: random.Next(3))).ToList();
+            if (placed.Count > 0 && random.Next(2) == 0)
+            {
+                var copy = (PlacedObject)placed[random.Next(placed.Count)].DeepCopy();
+                copy.Placement!.Position = new(random.Next(3), 0, 0);
+                AddCell(patch, cell).Persistent.Add(copy);
+            }
+        }
+        var linkCache = new LoadOrder<IModListing<ISkyrimModGetter>>([new ModListing<ISkyrimModGetter>(master), new ModListing<ISkyrimModGetter>(patch)]).ToImmutableLinkCache();
+        ContextualAnalyzerParams Params(Dropbox dropbox) =>
+            new(linkCache, dropbox, new ProvideCaches(linkCache, TestCacheConstructors.All), new ReportContextParameters(linkCache));
+        static string Describe(IEnumerable<(ModKey Mod, Topic Topic)> reports) =>
+            string.Join("\n", reports.Select(r => $"{r.Mod} {r.Topic.FormattedTopic.FormattedMessage} {string.Join(";", r.Topic.MetaData.Select(m => $"{m.Name}={string.Join(",", ((IEnumerable<IPlacedObjectGetter>)m.Value!).Select(p => p.FormKey))}"))}").Order());
+
+        var whole = new Dropbox();
+        new DuplicateReferencesAnalyzer().Analyze(Params(whole));
+        var analyzer = new DuplicateReferencesAnalyzer();
+        var plan = analyzer.Plan(Params(new Dropbox()));
+        var parts = new Dropbox[plan.Count];
+        Parallel.For(0, plan.Count, new ParallelOptions { MaxDegreeOfParallelism = 8 }, i =>
+        {
+            parts[i] = new Dropbox();
+            plan.Analyze(Params(parts[i]), i, i + 1);
+        });
+
+        plan.Count.ShouldBe(40);
+        whole.Reports.Count.ShouldBeGreaterThan(5);
+        Describe(parts.SelectMany(p => p.Reports)).ShouldBe(Describe(whole.Reports));
     }
 
     private static List<(ModKey Mod, Topic Topic)> Analyze(params SkyrimMod[] mods)
