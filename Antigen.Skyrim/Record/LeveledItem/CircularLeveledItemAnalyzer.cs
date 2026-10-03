@@ -1,18 +1,22 @@
 ﻿using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
+using Antigen.SDK.Caches;
+using Antigen.Skyrim.Caches;
 using Antigen.Skyrim.Util;
 using Mutagen.Bethesda.Skyrim;
 using Noggog;
 
 namespace Antigen.Skyrim.Record.LeveledItem;
 
-public class CircularLeveledItemListAnalyzer : IContextualRecordAnalyzer<ILeveledItemGetter>
+public class CircularLeveledItemListAnalyzer : IContextualRecordAnalyzer<ILeveledItemGetter>, IUsesCaches
 {
     public static readonly TopicDefinition CircularLeveledItem = MutagenTopicBuilder.FromDiscussion(
             230,
             "Circular Leveled Item",
             Severity.CTD)
         .WithoutFormatting("Leveled Item contains itself in path {0}");
+
+    public IEnumerable<Type> Caches => [typeof(ILeveledListCache)];
 
     public IEnumerable<TopicDefinition> Topics { get; } = [CircularLeveledItem];
 
@@ -29,7 +33,7 @@ public class CircularLeveledItemListAnalyzer : IContextualRecordAnalyzer<ILevele
             }
 
             return [];
-        }, CircularLeveledItem);
+        }, CircularLeveledItem, param.ResolveCache<ILeveledListCache>());
     }
 
     IEnumerable<Func<ILeveledItemGetter, object?>> IContextualRecordAnalyzer<ILeveledItemGetter>.FieldsOfInterest()
