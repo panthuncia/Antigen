@@ -1,5 +1,6 @@
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
+using System.Runtime.ExceptionServices;
 using Antigen.Skyrim.Caches;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -37,7 +38,7 @@ public class LandscapeSeamAnalyzer : IContextualRecordAnalyzer<ILandscapeGetter>
             Severity.Warning)
         .WithFormatting<Quadrant, Direction, IFormLinkGetter<ILandscapeTextureGetter>>("Landscape quadrant {0} has texture seam in direction {1} with texture {2}");
 
-    static readonly IReadOnlyArray2d<P3UInt8> DefaultVertexColors = new Array2d<P3UInt8>(new P2Int(LandscapeExtensions.GridSize, LandscapeExtensions.GridSize), new P3UInt8(255, 255, 255));
+    internal static readonly IReadOnlyArray2d<P3UInt8> DefaultVertexColors = new Array2d<P3UInt8>(new P2Int(LandscapeExtensions.GridSize, LandscapeExtensions.GridSize), new P3UInt8(255, 255, 255));
     // Minimum opacity difference to raise DefaultVertexColors. Somewhat arbritrary based on floating point errors + min difference for perception
     static readonly float AlphaOpacityEpsilon = 1.0f / 8.0f;
 
@@ -66,7 +67,10 @@ public class LandscapeSeamAnalyzer : IContextualRecordAnalyzer<ILandscapeGetter>
         };
     }
 
-    static IEnumerable<T> GetEdge<T>(IReadOnlyArray2d<T> data, Direction direction)
+    /// <summary>The directions in order of their values, for indexing edges by direction.</summary>
+    internal static readonly Direction[] Directions = [Direction.North, Direction.East, Direction.South, Direction.West];
+
+    internal static IEnumerable<T> GetEdge<T>(IReadOnlyArray2d<T> data, Direction direction)
     {
         return direction switch
         {
@@ -105,63 +109,62 @@ public class LandscapeSeamAnalyzer : IContextualRecordAnalyzer<ILandscapeGetter>
         var worldspace = cell?.GetWorldspace(param.LinkCache);
         if (cell?.Grid == null || worldspace == null) return;
 
-        var usageCache = param.ResolveCache<ILinkUsageCache>();
-        var exteriorCache = param.ResolveCache<IExteriorCellCache>();
-
-        ILandscapeGetter? GetLandscape(P2Int point)
-        {
-            return exteriorCache.GetExterior(worldspace, point).TryResolve(param.LinkCache)?.GetLandscape(param.LinkCache);
-        }
-
-        if (!cell.IsNearBorderRegion(param.LinkCache, usageCache, exteriorCache))
+        // Its neighbours' edges, and whether it's near a border region, are worked out once for the load order.
+        var seams = param.ResolveCache<ILandscapeSeamCache>();
+        var point = cell.Grid.Point;
+        if (!seams.IsNearBorderRegion(worldspace.FormKey, point))
             return;
 
+        // Its own edges are the cache's when it's the version that wins, and decoded from it otherwise.
+        var cached = seams.GetEdges(worldspace.FormKey, point);
+        var self = cached is { Failed: null } && cached.Landscape == landscape.FormKey && cached.Plugin == param.ModKey
+            ? cached
+            : LandscapeEdges.Of(landscape, param.ModKey);
 
-        void CheckSeams<T>(TopicDefinition<Direction> topic, Func<ILandscapeGetter, IReadOnlyArray2d<T>?> getData)
+        LandscapeEdges? GetNeighbour(Direction direction)
+        {
+            var edges = seams.GetEdges(worldspace.FormKey, point + ToOffset(direction));
+            if (edges?.Failed is { } failed) ExceptionDispatchInfo.Throw(failed);
+            return edges;
+        }
+
+        void CheckSeams<T>(TopicDefinition<Direction> topic, T[]?[]? data, Func<LandscapeEdges, T[]?[]?> getData)
             where T : IEquatable<T>
         {
-            var data = getData(landscape);
             if (data == null)
                 return;
 
-            void CheckNeigbour(Direction dir)
+            foreach (var dir in Directions)
             {
-                var neighbour = GetLandscape(cell.Grid.Point + ToOffset(dir));
-                if (neighbour == null) return;
+                var neighbour = GetNeighbour(dir);
+                if (neighbour == null) continue;
                 var neighbourData = getData(neighbour);
-                if (neighbourData == null) return;
+                if (neighbourData == null) continue;
 
-                var edgeSelf = GetEdge(data, dir);
-                var edgeOther = GetEdge(neighbourData, Opposite(dir));
-
-                var diff = Difference<T>.GetDifferences(edgeSelf, edgeOther, (a, b) => !a.Equals(b));
-                if (diff.Any())
+                var diff = GetDifferences(data[(int)dir]!, neighbourData[(int)Opposite(dir)]!, static (a, b) => !a.Equals(b));
+                if (diff.Length > 0)
                     param.AddTopic(topic.Format(dir), ("Differences", diff));
             }
-            CheckNeigbour(Direction.North);
-            CheckNeigbour(Direction.East);
-            CheckNeigbour(Direction.South);
-            CheckNeigbour(Direction.West);
         }
 
-        CheckSeams(HeightMapSeam, l => l.VertexHeightMap?.Decode());
-        CheckSeams(VertexColorSeam, l => l.VertexColors ?? DefaultVertexColors);
+        CheckSeams(HeightMapSeam, self.Heights, l => l.Heights);
+        CheckSeams(VertexColorSeam, self.Colors, l => l.Colors);
 
-        void CheckTextures(LandscapeExtensions.QuadrantData selfQuadrant, LandscapeExtensions.QuadrantData otherQuadrant, Direction selfToOther)
+        void CheckTextures(QuadrantEdges selfQuadrant, QuadrantEdges otherQuadrant, Direction selfToOther)
         {
-            foreach (var texture in selfQuadrant.GetTextures().And(otherQuadrant.GetTextures()).Distinct())
+            foreach (var texture in selfQuadrant.Textures.And(otherQuadrant.Textures).Distinct())
             {
-                var edgeSelf = GetEdge(selfQuadrant.GetLayer(texture).Opacity, selfToOther);
-                var edgeOther = GetEdge(otherQuadrant.GetLayer(texture).Opacity, Opposite(selfToOther));
+                var edgeSelf = selfQuadrant.Edge(texture, selfToOther);
+                var edgeOther = otherQuadrant.Edge(texture, Opposite(selfToOther));
 
                 // We need an epsilon here since opacities are stored as floats
-                var diff = Difference<float>.GetDifferences(edgeSelf, edgeOther, (a, b) => !a.EqualsWithin(b, AlphaOpacityEpsilon));
-
-                var zipped = edgeSelf.Zip(edgeOther);
-                if (diff.Any())
+                var diff = GetDifferences(edgeSelf, edgeOther, static (a, b) => !a.EqualsWithin(b, AlphaOpacityEpsilon));
+                if (diff.Length > 0)
                     param.AddTopic(TextureSeam.Format(selfQuadrant.Quadrant, selfToOther, texture), ("Differences", diff));
             }
         }
+
+        static QuadrantEdges Of(LandscapeEdges edges, Quadrant quadrant) => edges.Quadrants.First(q => q.Quadrant == quadrant);
 
         // Landscape textures ar broken into four quadrants per cell
         // This analysers checks are described as:
@@ -172,44 +175,50 @@ public class LandscapeSeamAnalyzer : IContextualRecordAnalyzer<ILandscapeGetter>
         // Wbr | bl  | br  | Ebl
         //     | Stl | Str |
 
-
-        var tl = landscape.Layers.DecodeQuadrant(Quadrant.TopLeft);
-        var tr = landscape.Layers.DecodeQuadrant(Quadrant.TopRight);
-        var bl = landscape.Layers.DecodeQuadrant(Quadrant.BottomLeft);
-        var br = landscape.Layers.DecodeQuadrant(Quadrant.BottomRight);
+        var tl = Of(self, Quadrant.TopLeft);
+        var tr = Of(self, Quadrant.TopRight);
+        var bl = Of(self, Quadrant.BottomLeft);
+        var br = Of(self, Quadrant.BottomRight);
 
         CheckTextures(tl, tr, Direction.East);
         CheckTextures(tl, bl, Direction.South);
         CheckTextures(bl, br, Direction.East);
         CheckTextures(tr, br, Direction.South);
 
-        var north = GetLandscape(cell.Grid.Point + ToOffset(Direction.North));
-        if (north != null)
+        if (GetNeighbour(Direction.North) is { } north)
         {
-            CheckTextures(tl, north.Layers.DecodeQuadrant(Quadrant.BottomLeft), Direction.North);
-            CheckTextures(tr, north.Layers.DecodeQuadrant(Quadrant.BottomRight), Direction.North);
+            CheckTextures(tl, Of(north, Quadrant.BottomLeft), Direction.North);
+            CheckTextures(tr, Of(north, Quadrant.BottomRight), Direction.North);
         }
 
-        var east = GetLandscape(cell.Grid.Point + ToOffset(Direction.East));
-        if (east != null)
+        if (GetNeighbour(Direction.East) is { } east)
         {
-            CheckTextures(tr, east.Layers.DecodeQuadrant(Quadrant.TopLeft), Direction.East);
-            CheckTextures(br, east.Layers.DecodeQuadrant(Quadrant.BottomLeft), Direction.East);
+            CheckTextures(tr, Of(east, Quadrant.TopLeft), Direction.East);
+            CheckTextures(br, Of(east, Quadrant.BottomLeft), Direction.East);
         }
 
-        var south = GetLandscape(cell.Grid.Point + ToOffset(Direction.South));
-        if (south != null)
+        if (GetNeighbour(Direction.South) is { } south)
         {
-            CheckTextures(bl, south.Layers.DecodeQuadrant(Quadrant.TopLeft), Direction.South);
-            CheckTextures(br, south.Layers.DecodeQuadrant(Quadrant.TopRight), Direction.South);
+            CheckTextures(bl, Of(south, Quadrant.TopLeft), Direction.South);
+            CheckTextures(br, Of(south, Quadrant.TopRight), Direction.South);
         }
 
-        var west = GetLandscape(cell.Grid.Point + ToOffset(Direction.West));
-        if (west != null)
+        if (GetNeighbour(Direction.West) is { } west)
         {
-            CheckTextures(tl, west.Layers.DecodeQuadrant(Quadrant.TopRight), Direction.West);
-            CheckTextures(bl, west.Layers.DecodeQuadrant(Quadrant.BottomRight), Direction.West);
+            CheckTextures(tl, Of(west, Quadrant.TopRight), Direction.West);
+            CheckTextures(bl, Of(west, Quadrant.BottomRight), Direction.West);
         }
+    }
+
+    /// <summary>Where two edges differ, as a list made now: a report's metadata is read later, on another thread.</summary>
+    static Difference<T>[] GetDifferences<T>(T[] self, T[] other, Func<T, T, bool> diffPredicate)
+    {
+        List<Difference<T>>? found = null;
+        for (var i = 0; i < Math.Min(self.Length, other.Length); i++)
+        {
+            if (diffPredicate(self[i], other[i])) (found ??= []).Add(new Difference<T> { Index = i, Self = self[i], Other = other[i] });
+        }
+        return found?.ToArray() ?? [];
     }
 
     public IEnumerable<Func<ILandscapeGetter, object?>> FieldsOfInterest()
