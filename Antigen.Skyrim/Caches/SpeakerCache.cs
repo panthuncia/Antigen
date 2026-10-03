@@ -28,31 +28,116 @@ public interface ISpeakerCache
 }
 
 /// <summary>
-/// A set of speakers: NPCs and talking activators, as bits by their place in the load order's, and any others by FormKey.
+/// A set of speakers (NPCs and talking activators) as <see cref="VoiceTypeAssetLookup.GetSpeakerVoices"/> gives them:
+/// voice types whole, as bits, and speakers named one by one. Most responses are whole voice types (one without
+/// conditions is every speaker), so a set is a few words rather than a bit for each speaker in the load order.
 /// </summary>
 public sealed class SpeakerSet
 {
-    private readonly ulong[] _bits;
-    private readonly HashSet<FormKey>? _others;
+    private readonly ulong[] _whole;
+    private readonly ulong[] _reach;
+    private readonly ulong[] _namedVoices;
+    private readonly HashSet<FormKey>? _named;
 
-    internal SpeakerSet(ulong[] bits, HashSet<FormKey>? others)
+    /// <param name="whole">The voice types all of whose speakers are in the set.</param>
+    /// <param name="reach">The voice types sharing a speaker with one of those (each of them among them).</param>
+    /// <param name="namedVoices">The voice types of the speakers named.</param>
+    /// <param name="named">The speakers named, or null for none.</param>
+    internal SpeakerSet(ulong[] whole, ulong[] reach, ulong[] namedVoices, HashSet<FormKey>? named)
     {
-        _bits = bits;
-        _others = others;
-        IsEmpty = others is null && Array.TrueForAll(bits, static w => w == 0);
+        _whole = whole;
+        _reach = reach;
+        _namedVoices = namedVoices;
+        _named = named;
+        IsEmpty = named is null && Array.TrueForAll(whole, static w => w == 0);
     }
 
     public bool IsEmpty { get; }
 
     /// <summary>Whether any speaker is in both.</summary>
-    public bool Intersects(SpeakerSet other)
+    public bool Intersects(SpeakerSet other) =>
+        Overlap(_reach, other._whole)
+        || Overlap(_namedVoices, other._whole)
+        || Overlap(other._namedVoices, _whole)
+        || (_named is not null && other._named is not null && _named.Overlaps(other._named));
+
+    private static bool Overlap(ulong[] a, ulong[] b)
     {
-        var words = Math.Min(_bits.Length, other._bits.Length);
+        var words = Math.Min(a.Length, b.Length);
         for (var i = 0; i < words; i++)
         {
-            if ((_bits[i] & other._bits[i]) != 0) return true;
+            if ((a[i] & b[i]) != 0) return true;
         }
-        return _others is not null && other._others is not null && _others.Overlaps(other._others);
+        return false;
+    }
+}
+
+/// <summary>
+/// The load order's voice types as bits, and which share a speaker: what <see cref="SpeakerSet"/>s are made with.
+/// </summary>
+public sealed class SpeakerVoices
+{
+    private readonly Dictionary<string, int> _index = new(StringComparer.Ordinal);
+    private readonly ulong[][] _overlaps;
+    private readonly Func<FormKey, IReadOnlyCollection<string>> _voiceTypesOf;
+    private readonly int _words;
+
+    /// <param name="voiceTypes">Every voice type a speaker has.</param>
+    /// <param name="speakersOf">The speakers of a voice type.</param>
+    /// <param name="voiceTypesOf">A speaker's voice types: none for a FormKey that isn't a speaker.</param>
+    public SpeakerVoices(IEnumerable<string> voiceTypes, Func<string, IReadOnlyCollection<FormKey>> speakersOf,
+        Func<FormKey, IReadOnlyCollection<string>> voiceTypesOf)
+    {
+        _voiceTypesOf = voiceTypesOf;
+        foreach (var voiceType in voiceTypes)
+        {
+            if (speakersOf(voiceType).Count > 0) _index.TryAdd(voiceType, _index.Count);
+        }
+        _words = (_index.Count + 63) / 64;
+        _overlaps = new ulong[_index.Count][];
+        foreach (var (voiceType, at) in _index)
+        {
+            var overlaps = _overlaps[at] = new ulong[_words];
+            foreach (var speaker in speakersOf(voiceType))
+            {
+                Set(overlaps, voiceTypesOf(speaker));
+            }
+        }
+    }
+
+    /// <summary>The speakers <paramref name="voices"/> holds: none for null.</summary>
+    public SpeakerSet Of(VoiceContainer? voices)
+    {
+        var whole = new ulong[_words];
+        var reach = new ulong[_words];
+        var namedVoices = new ulong[_words];
+        HashSet<FormKey>? named = null;
+        foreach (var (voiceType, speakers) in voices?.Voices ?? new Dictionary<string, HashSet<FormKey>>())
+        {
+            if (speakers.Count > 0)
+            {
+                foreach (var speaker in speakers)
+                {
+                    if ((named ??= []).Add(speaker)) Set(namedVoices, _voiceTypesOf(speaker));
+                }
+            }
+            // A voice type without speakers adds none.
+            else if (_index.TryGetValue(voiceType, out var at))
+            {
+                whole[at >> 6] |= 1UL << (at & 63);
+                var overlaps = _overlaps[at];
+                for (var i = 0; i < _words; i++) reach[i] |= overlaps[i];
+            }
+        }
+        return new SpeakerSet(whole, reach, namedVoices, named);
+    }
+
+    private void Set(ulong[] bits, IReadOnlyCollection<string> voiceTypes)
+    {
+        foreach (var voiceType in voiceTypes)
+        {
+            if (_index.TryGetValue(voiceType, out var at)) bits[at >> 6] |= 1UL << (at & 63);
+        }
     }
 }
 
@@ -64,7 +149,7 @@ public class SpeakerCacheProvider : IPartitionedCacheConstructor, IUsesCaches
 
     public object Construct(ILinkCache linkCache, IProvideCaches provideCaches) => Plan(linkCache, provideCaches).BuildAll();
 
-    /// <summary>In two stages: a part for each plugin, listing its speakers and responses; then one for each response.</summary>
+    /// <summary>In two stages: a part for each plugin, listing its responses; then one for each response.</summary>
     public ICachePlan Plan(ILinkCache linkCache, IProvideCaches provideCaches) =>
         new SpeakerCache.Listed(linkCache, provideCaches.Resolve<VoiceTypeAssetLookup>());
 }
@@ -73,14 +158,13 @@ public class SpeakerCacheProvider : IPartitionedCacheConstructor, IUsesCaches
 public class SpeakerCache : ISpeakerCache
 {
     private readonly VoiceTypeAssetLookup _lookup;
-    private readonly IReadOnlyDictionary<FormKey, int> _speakerIndex;
+    private readonly SpeakerVoices _voices;
     private readonly IReadOnlyDictionary<FormKey, (ModKey Plugin, SpeakerSet Speakers)> _winners;
 
-    private SpeakerCache(VoiceTypeAssetLookup lookup, IReadOnlyDictionary<FormKey, int> speakerIndex,
-        IReadOnlyDictionary<FormKey, (ModKey, SpeakerSet)> winners)
+    private SpeakerCache(VoiceTypeAssetLookup lookup, SpeakerVoices voices, IReadOnlyDictionary<FormKey, (ModKey, SpeakerSet)> winners)
     {
         _lookup = lookup;
-        _speakerIndex = speakerIndex;
+        _voices = voices;
         _winners = winners;
     }
 
@@ -89,37 +173,25 @@ public class SpeakerCache : ISpeakerCache
     public SpeakerSet For(IDialogResponsesGetter responses, ModKey plugin) =>
         _winners.TryGetValue(responses.FormKey, out var winner) && winner.Plugin == plugin ? winner.Speakers : Of(responses);
 
-    public SpeakerSet Of(IDialogResponsesGetter responses) => Of(_lookup, _speakerIndex, responses);
-
-    private static SpeakerSet Of(VoiceTypeAssetLookup lookup, IReadOnlyDictionary<FormKey, int> index, IDialogResponsesGetter responses)
-    {
-        var bits = new ulong[(index.Count + 63) / 64];
-        HashSet<FormKey>? others = null;
-        foreach (var speaker in lookup.GetSpeakers(responses))
-        {
-            if (index.TryGetValue(speaker.FormKey, out var at)) bits[at >> 6] |= 1UL << (at & 63);
-            else (others ??= []).Add(speaker.FormKey);
-        }
-        return new SpeakerSet(bits, others);
-    }
+    public SpeakerSet Of(IDialogResponsesGetter responses) => _voices.Of(_lookup.GetSpeakerVoices(responses));
 
     /// <summary>
-    /// The cache's first stage: a part for each plugin, listing its NPCs and talking activators (who can speak) and its
-    /// dialog responses. Sealed, the lists are put together in the load order's order, and the next stage planned.
+    /// The cache's first stage: a part for each plugin, listing its dialog responses. Sealed, the load order's voice
+    /// types are numbered, and the next stage planned.
     /// </summary>
     public sealed class Listed : ICachePlan
     {
         private readonly ILinkCache _linkCache;
         private readonly VoiceTypeAssetLookup _lookup;
         private readonly IModGetter[] _mods;
-        private readonly (FormKey[] Speakers, FormKey[] Responses)[] _lists;
+        private readonly FormKey[][] _responses;
 
         public Listed(ILinkCache linkCache, VoiceTypeAssetLookup lookup)
         {
             _linkCache = linkCache;
             _lookup = lookup;
             _mods = [.. linkCache.PriorityOrder];
-            _lists = new (FormKey[], FormKey[])[_mods.Length];
+            _responses = new FormKey[_mods.Length][];
         }
 
         public int Count => _mods.Length;
@@ -128,25 +200,17 @@ public class SpeakerCache : ISpeakerCache
         {
             for (var i = start; i < end; i++)
             {
-                var mod = _mods[i];
-                _lists[i] = (
-                    [.. mod.EnumerateMajorRecords<INpcGetter>().Select(n => n.FormKey)
-                        .Concat(mod.EnumerateMajorRecords<ITalkingActivatorGetter>().Select(t => t.FormKey))],
-                    [.. mod.EnumerateMajorRecords<IDialogResponsesGetter>().Select(r => r.FormKey)]);
+                _responses[i] = [.. _mods[i].EnumerateMajorRecords<IDialogResponsesGetter>().Select(r => r.FormKey)];
             }
         }
 
         public object Seal()
         {
-            // Each speaker a bit of a set, and each response once.
-            var speakerIndex = new Dictionary<FormKey, int>();
-            foreach (var (speakers, _) in _lists)
-            {
-                foreach (var speaker in speakers) speakerIndex.TryAdd(speaker, speakerIndex.Count);
-            }
+            // Each response once.
             var responses = new HashSet<FormKey>();
-            foreach (var (_, ofMod) in _lists) responses.UnionWith(ofMod);
-            return new Planned(_linkCache, _lookup, speakerIndex, [.. responses]);
+            foreach (var ofMod in _responses) responses.UnionWith(ofMod);
+            var voices = new SpeakerVoices(_lookup.VoiceTypes, _lookup.GetSpeakersOfVoiceType, _lookup.GetVoiceTypesOfSpeaker);
+            return new Planned(_linkCache, _lookup, voices, [.. responses]);
         }
     }
 
@@ -155,15 +219,15 @@ public class SpeakerCache : ISpeakerCache
     {
         private readonly ILinkCache _linkCache;
         private readonly VoiceTypeAssetLookup _lookup;
-        private readonly Dictionary<FormKey, int> _speakerIndex;
+        private readonly SpeakerVoices _voices;
         private readonly FormKey[] _responses;
         private readonly (ModKey Plugin, SpeakerSet Speakers)?[] _found;
 
-        public Planned(ILinkCache linkCache, VoiceTypeAssetLookup lookup, Dictionary<FormKey, int> speakerIndex, FormKey[] responses)
+        public Planned(ILinkCache linkCache, VoiceTypeAssetLookup lookup, SpeakerVoices voices, FormKey[] responses)
         {
             _linkCache = linkCache;
             _lookup = lookup;
-            _speakerIndex = speakerIndex;
+            _voices = voices;
             _responses = responses;
             _found = new (ModKey, SpeakerSet)?[_responses.Length];
         }
@@ -175,7 +239,7 @@ public class SpeakerCache : ISpeakerCache
             for (var i = start; i < end; i++)
             {
                 if (!_linkCache.TryResolveSimpleContext<IDialogResponsesGetter>(_responses[i], out var context)) continue;
-                _found[i] = (context.ModKey, Of(_lookup, _speakerIndex, context.Record));
+                _found[i] = (context.ModKey, _voices.Of(_lookup.GetSpeakerVoices(context.Record)));
             }
         }
 
@@ -186,7 +250,7 @@ public class SpeakerCache : ISpeakerCache
             {
                 if (_found[i] is { } found) winners[_responses[i]] = found;
             }
-            return new SpeakerCache(_lookup, _speakerIndex, winners);
+            return new SpeakerCache(_lookup, _voices, winners);
         }
     }
 }
