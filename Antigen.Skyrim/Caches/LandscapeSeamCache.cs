@@ -147,14 +147,15 @@ public sealed class QuadrantEdges
             // By direction: north the top row (y = 16), east the right column (x = 16), south and west the first; a point
             // set twice keeps the last, as in the grid.
             var edges = new float[]?[4];
-            foreach (var point in alpha.AlphaLayerData)
+            // Read from the layer's bytes, without an object for each point.
+            foreach (var (position, value) in alpha.AlphaPoints())
             {
-                var (x, y) = (point.Position % size, point.Position / size);
-                if (y >= size) throw new IndexOutOfRangeException($"Alpha layer point {point.Position} is outside its quadrant.");
-                if (y == size - 1) (edges[(int)LandscapeSeamAnalyzer.Direction.North] ??= new float[size])[x] = point.Opacity;
-                if (x == size - 1) (edges[(int)LandscapeSeamAnalyzer.Direction.East] ??= new float[size])[y] = point.Opacity;
-                if (y == 0) (edges[(int)LandscapeSeamAnalyzer.Direction.South] ??= new float[size])[x] = point.Opacity;
-                if (x == 0) (edges[(int)LandscapeSeamAnalyzer.Direction.West] ??= new float[size])[y] = point.Opacity;
+                var (x, y) = (position % size, position / size);
+                if (y >= size) throw new IndexOutOfRangeException($"Alpha layer point {position} is outside its quadrant.");
+                if (y == size - 1) (edges[(int)LandscapeSeamAnalyzer.Direction.North] ??= new float[size])[x] = value;
+                if (x == size - 1) (edges[(int)LandscapeSeamAnalyzer.Direction.East] ??= new float[size])[y] = value;
+                if (y == 0) (edges[(int)LandscapeSeamAnalyzer.Direction.South] ??= new float[size])[x] = value;
+                if (x == 0) (edges[(int)LandscapeSeamAnalyzer.Direction.West] ??= new float[size])[y] = value;
             }
             for (var d = 0; d < edges.Length; d++)
             {
