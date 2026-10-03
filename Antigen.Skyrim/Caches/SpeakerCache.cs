@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Antigen.SDK.Caches;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -105,39 +106,65 @@ public sealed class SpeakerVoices
         }
     }
 
+    private static readonly SpeakerSet None = new([], [], [], null);
+
+    // The sets of frozen containers, which the lookup shares among many responses (all the default voices, for one
+    // without conditions): each made once.
+    private readonly ConditionalWeakTable<VoiceContainer, SpeakerSet> _shared = new();
+
     /// <summary>The speakers <paramref name="voices"/> holds: none for null.</summary>
     public SpeakerSet Of(VoiceContainer? voices)
     {
-        var whole = new ulong[_words];
-        var reach = new ulong[_words];
-        var namedVoices = new ulong[_words];
+        if (voices is null || voices.Voices.Count == 0) return None;
+        if (!voices.IsFrozen) return Make(voices);
+        if (_shared.TryGetValue(voices, out var made)) return made;
+        return _shared.GetValue(voices, Make);
+    }
+
+    private SpeakerSet Make(VoiceContainer voices)
+    {
+        ulong[]? whole = null;
+        ulong[]? reach = null;
+        ulong[]? namedVoices = null;
         HashSet<FormKey>? named = null;
-        foreach (var (voiceType, speakers) in voices?.Voices ?? new Dictionary<string, HashSet<FormKey>>())
+        foreach (var (voiceType, speakers) in voices.Voices)
         {
             if (speakers.Count > 0)
             {
                 foreach (var speaker in speakers)
                 {
-                    if ((named ??= []).Add(speaker)) Set(namedVoices, _voiceTypesOf(speaker));
+                    if ((named ??= []).Add(speaker)) Set(namedVoices ??= new ulong[_words], _voiceTypesOf(speaker));
                 }
             }
             // A voice type without speakers adds none.
             else if (_index.TryGetValue(voiceType, out var at))
             {
-                whole[at >> 6] |= 1UL << (at & 63);
+                (whole ??= new ulong[_words])[at >> 6] |= 1UL << (at & 63);
+                reach ??= new ulong[_words];
                 var overlaps = _overlaps[at];
                 for (var i = 0; i < _words; i++) reach[i] |= overlaps[i];
             }
         }
-        return new SpeakerSet(whole, reach, namedVoices, named);
+        // Words left out are none (SpeakerSet compares as many words as both have).
+        return new SpeakerSet(whole ?? [], reach ?? [], namedVoices ?? [], named);
     }
 
     private void Set(ulong[] bits, IReadOnlyCollection<string> voiceTypes)
     {
-        foreach (var voiceType in voiceTypes)
+        // The lookup's are sets: enumerated as such, without boxing an enumerator for each speaker.
+        if (voiceTypes is HashSet<string> set)
         {
-            if (_index.TryGetValue(voiceType, out var at)) bits[at >> 6] |= 1UL << (at & 63);
+            foreach (var voiceType in set) Set(bits, voiceType);
         }
+        else
+        {
+            foreach (var voiceType in voiceTypes) Set(bits, voiceType);
+        }
+    }
+
+    private void Set(ulong[] bits, string voiceType)
+    {
+        if (_index.TryGetValue(voiceType, out var at)) bits[at >> 6] |= 1UL << (at & 63);
     }
 }
 

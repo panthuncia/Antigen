@@ -30,13 +30,14 @@ public class CellPlacedCacheProvider : ICacheConstructor
 }
 
 /// <summary>
-/// Made empty and filled as asked. A cell's placed records are many, so each thread keeps those of the last cells it
+/// Made empty and filled as asked. A cell's placed records are many, so each thread keeps those of the last few cells it
 /// asked about (a record's versions are checked one after another, and a walk through doors comes back to the same
-/// cells); the doors reached are few, so all are kept.
+/// cells): each placed record read is large, and a thread keeping many cells' keeps much of the load order. The doors
+/// reached are few, so all are kept.
 /// </summary>
 public sealed class CellPlacedCache(ILinkCache linkCache) : ICellPlacedCache
 {
-    private const int Kept = 64;
+    private const int Kept = 8;
     private readonly ThreadLocal<Recent> _recent = new(static () => new Recent());
     private readonly ConcurrentDictionary<FormKey, IPlacedObjectGetter[]> _doors = new();
 

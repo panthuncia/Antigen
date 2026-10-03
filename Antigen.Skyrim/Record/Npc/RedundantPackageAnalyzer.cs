@@ -50,44 +50,71 @@ public sealed class RedundantPackageAnalyzer : IContextualRecordAnalyzer<INpcGet
         }
     }
 
+    /// <summary>
+    /// A package's spans: one for each hour and minute it can start at (every hour, or its own; every minute, or its own,
+    /// or the hour's first), worked out when read rather than kept, as most packages start at any time and have 1,440.
+    /// </summary>
+    private readonly struct Schedule
+    {
+        private readonly int _hour;
+        private readonly int _minute;
+
+        public Schedule(IPackageGetter package)
+        {
+            Package = package;
+            Duration = package.ScheduleDurationInMinutes;
+            _hour = package.ScheduleHour;
+            // -1 for every minute.
+            _minute = package.ScheduleMinute == -1 ? package.ScheduleHour == -1 ? -1 : 0 : package.ScheduleMinute;
+        }
+
+        public IPackageGetter Package { get; }
+
+        public int Duration { get; }
+
+        public int Count => (_hour == -1 ? 24 : 1) * (_minute == -1 ? 60 : 1);
+
+        /// <summary>The spans in the order of their starts' hours, then minutes.</summary>
+        public PackageTimeSpan this[int index]
+        {
+            get
+            {
+                var minutes = _minute == -1 ? 60 : 1;
+                var hour = _hour == -1 ? index / minutes : _hour;
+                var minute = _minute == -1 ? index % minutes : _minute;
+                return new PackageTimeSpan
+                {
+                    Package = Package,
+                    Start = new Time
+                    {
+                        Hour = hour,
+                        Minute = minute,
+                    },
+                    End = new Time
+                    {
+                        Hour = hour + (Duration - 1) / 60 % 24,
+                        Minute = minute + (Duration - 1) % 60,
+                    },
+                    ExtendsToNextDay = (hour * 60 + minute + Duration - 1) / 60 >= 24
+                };
+            }
+        }
+    }
+
     public void AnalyzeRecord(ContextualRecordAnalyzerParams<INpcGetter> param)
     {
         var npc = param.Record;
 
-        var timespans = new List<PackageTimeSpan>();
+        var kept = new List<Schedule>();
         foreach (var packageLink in npc.Packages)
         {
             var package = packageLink.TryResolve(param.LinkCache);
             if (package is null) continue;
 
-            var hours = package.ScheduleHour == -1 ? Enumerable.Range(0, 24).ToArray() : [package.ScheduleHour];
-            var minutes = package.ScheduleMinute == -1 ? package.ScheduleHour == -1 ? Enumerable.Range(0, 60).ToArray() : [0] : [package.ScheduleMinute];
-
-            var packageTimespans = new List<PackageTimeSpan>();
-            foreach (var hour in hours)
-            {
-                foreach (var minute in minutes)
-                {
-                    packageTimespans.Add(new PackageTimeSpan
-                    {
-                        Package = package,
-                        Start = new Time
-                        {
-                            Hour = hour,
-                            Minute = minute,
-                        },
-                        End = new Time
-                        {
-                            Hour = hour + (package.ScheduleDurationInMinutes - 1) / 60 % 24,
-                            Minute = minute + (package.ScheduleDurationInMinutes - 1) % 60,
-                        },
-                        ExtendsToNextDay = (hour * 60 + minute + package.ScheduleDurationInMinutes - 1) / 60 >= 24
-                    });
-                }
-            }
+            var schedule = new Schedule(package);
 
             // Check if the new package is subsumed by the existing packages
-            if (Subsumed(packageTimespans, timespans, package.ScheduleDurationInMinutes))
+            if (Subsumed(schedule, kept))
             {
                 param.AddTopic(
                     RedundantPackage.Format(package));
@@ -102,7 +129,7 @@ public sealed class RedundantPackageAnalyzer : IContextualRecordAnalyzer<INpcGet
                 if (package.ScheduleDate != 0) continue;
                 if (package.ScheduleDayOfWeek != (Mutagen.Bethesda.Skyrim.Package.DayOfWeek)255) continue;
 
-                timespans.AddRange(packageTimespans);
+                kept.Add(schedule);
             }
         }
     }
@@ -113,40 +140,62 @@ public sealed class RedundantPackageAnalyzer : IContextualRecordAnalyzer<INpcGet
     /// minutes this package's spans start at: these are marked on a grid of the day, once for the package, rather than
     /// each span compared with each kept (an NPC's packages running at any time are 1,440 spans each).
     /// </summary>
-    private static bool Subsumed(List<PackageTimeSpan> spans, List<PackageTimeSpan> kept, int duration)
+    private static bool Subsumed(Schedule spans, List<Schedule> kept)
     {
         if (kept.Count == 0) return spans.Count == 0;
 
-        var hours = (duration - 1) / 60 % 24;
-        var minutes = (duration - 1) % 60;
+        var hours = (spans.Duration - 1) / 60 % 24;
+        var minutes = (spans.Duration - 1) % 60;
         // A span going on into the next day is subsumed only by one that does too, with all four bounds; one that
         // doesn't, by one going on into the next day starting no later, or one that doesn't with all four bounds.
-        var nextDay = new StartGrid();
-        var sameDay = new StartGrid();
-        foreach (var other in kept)
+        var (nextDay, sameDay) = Grids ??= (new StartGrid(), new StartGrid());
+        nextDay.Clear();
+        sameDay.Clear();
+        foreach (var schedule in kept)
         {
-            if (other.ExtendsToNextDay)
+            for (var k = 0; k < schedule.Count; k++)
             {
-                nextDay.Add(other.Start.Hour, other.End.Hour - hours, other.Start.Minute, other.End.Minute - minutes);
-                sameDay.Add(other.Start.Hour, int.MaxValue, other.Start.Minute, int.MaxValue);
-            }
-            else
-            {
-                sameDay.Add(other.Start.Hour, other.End.Hour - hours, other.Start.Minute, other.End.Minute - minutes);
+                var other = schedule[k];
+                if (other.ExtendsToNextDay)
+                {
+                    nextDay.Add(other.Start.Hour, other.End.Hour - hours, other.Start.Minute, other.End.Minute - minutes);
+                    sameDay.Add(other.Start.Hour, int.MaxValue, other.Start.Minute, int.MaxValue);
+                }
+                else
+                {
+                    sameDay.Add(other.Start.Hour, other.End.Hour - hours, other.Start.Minute, other.End.Minute - minutes);
+                }
             }
         }
         nextDay.Seal();
         sameDay.Seal();
 
-        foreach (var span in spans)
+        for (var s = 0; s < spans.Count; s++)
         {
+            var span = spans[s];
             var subsumed = StartGrid.Holds(span.Start.Hour, span.Start.Minute)
                 ? (span.ExtendsToNextDay ? nextDay : sameDay).Covers(span.Start.Hour, span.Start.Minute)
-                : kept.Any(span.IsSubsumedBy);
+                : SubsumedByAny(span, kept);
             if (!subsumed) return false;
         }
         return true;
     }
+
+    private static bool SubsumedByAny(PackageTimeSpan span, List<Schedule> kept)
+    {
+        foreach (var schedule in kept)
+        {
+            for (var k = 0; k < schedule.Count; k++)
+            {
+                if (span.IsSubsumedBy(schedule[k])) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Each thread's grids, cleared for each package rather than made anew.</summary>
+    [ThreadStatic]
+    private static (StartGrid NextDay, StartGrid SameDay)? Grids;
 
     /// <summary>The starts of the day (hour and minute) covered by rectangles, counted with a two-dimensional prefix sum.</summary>
     private sealed class StartGrid
@@ -185,6 +234,8 @@ public sealed class RedundantPackageAnalyzer : IContextualRecordAnalyzer<INpcGet
         }
 
         public bool Covers(int hour, int minute) => _counts[hour, minute] > 0;
+
+        public void Clear() => Array.Clear(_counts);
     }
 
     public IEnumerable<Func<INpcGetter, object?>> FieldsOfInterest()
