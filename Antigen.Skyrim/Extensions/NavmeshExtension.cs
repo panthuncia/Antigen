@@ -18,11 +18,19 @@ public static class NavmeshExtension
         return TryGetTriangleArea(navmeshData, triangle, out area);
     }
 
-    public static bool TryGetTriangleArea(this INavigationMeshDataGetter navmeshData, INavmeshTriangleGetter triangle, out float area)
+    public static bool TryGetTriangleArea(this INavigationMeshDataGetter navmeshData, INavmeshTriangleGetter triangle, out float area) =>
+        navmeshData.Vertices.TryGetTriangleArea(triangle, out area);
+
+    /// <summary>
+    /// As <see cref="TryGetTriangleArea(INavigationMeshDataGetter, INavmeshTriangleGetter, out float)"/>, of a navmesh's
+    /// vertices read once: each read of <see cref="INavigationMeshDataGetter.Vertices"/> of a navmesh read from a plugin
+    /// makes a new list.
+    /// </summary>
+    public static bool TryGetTriangleArea(this IReadOnlyList<P3Float> vertices, INavmeshTriangleGetter triangle, out float area)
     {
-        var vertexX = navmeshData.Vertices[triangle.Vertices.X];
-        var vertexY = navmeshData.Vertices[triangle.Vertices.Y];
-        var vertexZ = navmeshData.Vertices[triangle.Vertices.Z];
+        var vertexX = vertices[triangle.Vertices.X];
+        var vertexY = vertices[triangle.Vertices.Y];
+        var vertexZ = vertices[triangle.Vertices.Z];
 
         var edgeA = vertexY - vertexX;
         var edgeB = vertexZ - vertexX;
@@ -45,11 +53,27 @@ public static class NavmeshExtension
         return TryGetTriangleNormal(navmeshData, triangle, out normal);
     }
 
-    public static bool TryGetTriangleNormal(this INavigationMeshDataGetter navmeshData, INavmeshTriangleGetter triangle, out P3Float normal)
+    public static bool TryGetTriangleNormal(this INavigationMeshDataGetter navmeshData, INavmeshTriangleGetter triangle, out P3Float normal) =>
+        navmeshData.Vertices.TryGetTriangleNormal(triangle, out normal);
+
+    /// <summary>As <see cref="TryGetTriangleNormal(INavigationMeshDataGetter, int, out P3Float)"/>, of a navmesh's triangles and vertices read once.</summary>
+    public static bool TryGetTriangleNormal(this IReadOnlyList<P3Float> vertices, IReadOnlyList<INavmeshTriangleGetter> triangles, int triangleIndex, out P3Float normal)
     {
-        var vertexX = navmeshData.Vertices[triangle.Vertices.X];
-        var vertexY = navmeshData.Vertices[triangle.Vertices.Y];
-        var vertexZ = navmeshData.Vertices[triangle.Vertices.Z];
+        if (triangleIndex < 0 || triangleIndex >= triangles.Count)
+        {
+            normal = default;
+            return false;
+        }
+
+        return vertices.TryGetTriangleNormal(triangles[triangleIndex], out normal);
+    }
+
+    /// <summary>As <see cref="TryGetTriangleNormal(INavigationMeshDataGetter, INavmeshTriangleGetter, out P3Float)"/>, of a navmesh's vertices read once.</summary>
+    public static bool TryGetTriangleNormal(this IReadOnlyList<P3Float> vertices, INavmeshTriangleGetter triangle, out P3Float normal)
+    {
+        var vertexX = vertices[triangle.Vertices.X];
+        var vertexY = vertices[triangle.Vertices.Y];
+        var vertexZ = vertices[triangle.Vertices.Z];
 
         var edgeA = vertexY - vertexX;
         var edgeB = vertexZ - vertexX;

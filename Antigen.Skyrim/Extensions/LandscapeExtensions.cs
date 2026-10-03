@@ -26,7 +26,9 @@ public static class LandscapeExtensions
     /// <exception cref="ArgumentOutOfRangeException"></exception>
     public static Array2d<float> Decode(this ILandscapeVertexHeightMapGetter heightMap)
     {
-        if (heightMap.HeightMap.Width != GridSize || heightMap.HeightMap.Height != GridSize)
+        // Each read of HeightMap makes an overlay of it: it's read once.
+        var map = heightMap.HeightMap;
+        if (map.Width != GridSize || map.Height != GridSize)
             throw new ArgumentOutOfRangeException(nameof(heightMap), $"Expected heightmap to be {GridSize}x{GridSize}");
 
         // Based on UESP https://en.uesp.net/wiki/Skyrim_Mod:Mod_File_Format/LAND
@@ -43,7 +45,7 @@ public static class LandscapeExtensions
                     (_, _) => result[row-1, col],
                 };
 
-                var delta = (sbyte)heightMap.HeightMap[row, col] * HeightMult;
+                var delta = (sbyte)map[row, col] * HeightMult;
 
                 result[row, col] = prev + delta;
             }

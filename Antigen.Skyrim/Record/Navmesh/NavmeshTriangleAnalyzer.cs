@@ -22,15 +22,17 @@ public class NavmeshTriangleAnalyzer : IIsolatedRecordAnalyzer<INavigationMeshGe
 
     public void AnalyzeRecord(IsolatedRecordAnalyzerParams<INavigationMeshGetter> param)
     {
-        var navmesh = param.Record;
-        if (navmesh.Data is null) return;
+        // Read once: each read of a navmesh's data, its triangles or its vertices makes them anew.
+        if (param.Record.Data is not { } data) return;
+        var triangles = data.Triangles;
+        var vertices = data.Vertices;
 
         var alreadyCheckedTriangles = new HashSet<int>();
-        for (var triangleIndex = 0; triangleIndex < navmesh.Data.Triangles.Count; triangleIndex++)
+        for (var triangleIndex = 0; triangleIndex < triangles.Count; triangleIndex++)
         {
             // Check neighbors
-            var triangle = navmesh.Data.Triangles[triangleIndex];
-            if (!navmesh.Data.TryGetTriangleNormal(triangle, out var normal))
+            var triangle = triangles[triangleIndex];
+            if (!vertices.TryGetTriangleNormal(triangle, out var normal))
             {
                 if (!triangle.Flags.HasFlag(NavmeshTriangle.Flag.EdgeLink_0_1))
                 {
@@ -51,7 +53,7 @@ public class NavmeshTriangleAnalyzer : IIsolatedRecordAnalyzer<INavigationMeshGe
                 {
                     if (alreadyCheckedTriangles.Contains(neighboringTriangleIndex)) return;
                     if (float.IsNaN(normal.X)) return;
-                    if (!navmesh.Data.TryGetTriangleNormal(neighboringTriangleIndex, out var neighboringNormal)) return;
+                    if (!vertices.TryGetTriangleNormal(triangles, neighboringTriangleIndex, out var neighboringNormal)) return;
                     if (float.IsNaN(neighboringNormal.X)) return;
 
                     var dot = normal.Dot(neighboringNormal);
@@ -64,7 +66,7 @@ public class NavmeshTriangleAnalyzer : IIsolatedRecordAnalyzer<INavigationMeshGe
             }
 
             // Check triangle area
-            if (navmesh.Data.TryGetTriangleArea(triangle, out var area) && area < 0.01f)
+            if (vertices.TryGetTriangleArea(triangle, out var area) && area < 0.01f)
             {
                 param.AddTopic(
                     TriangleTooSmall.Format(triangleIndex, area));
