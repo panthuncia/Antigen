@@ -64,9 +64,9 @@ public class SpeakerCacheProvider : IPartitionedCacheConstructor, IUsesCaches
 
     public object Construct(ILinkCache linkCache, IProvideCaches provideCaches) => Plan(linkCache, provideCaches).BuildAll();
 
-    /// <summary>A part for each dialog response.</summary>
+    /// <summary>In two stages: a part for each plugin, listing its speakers and responses; then one for each response.</summary>
     public ICachePlan Plan(ILinkCache linkCache, IProvideCaches provideCaches) =>
-        new SpeakerCache.Planned(linkCache, provideCaches.Resolve<VoiceTypeAssetLookup>());
+        new SpeakerCache.Listed(linkCache, provideCaches.Resolve<VoiceTypeAssetLookup>());
 }
 
 /// <summary>Made in a part for each dialog response (<see cref="Planned"/>), from its winning version.</summary>
@@ -103,26 +103,68 @@ public class SpeakerCache : ISpeakerCache
         return new SpeakerSet(bits, others);
     }
 
-    /// <summary>The cache being made: its parts are the load order's dialog responses.</summary>
+    /// <summary>
+    /// The cache's first stage: a part for each plugin, listing its NPCs and talking activators (who can speak) and its
+    /// dialog responses. Sealed, the lists are put together in the load order's order, and the next stage planned.
+    /// </summary>
+    public sealed class Listed : ICachePlan
+    {
+        private readonly ILinkCache _linkCache;
+        private readonly VoiceTypeAssetLookup _lookup;
+        private readonly IModGetter[] _mods;
+        private readonly (FormKey[] Speakers, FormKey[] Responses)[] _lists;
+
+        public Listed(ILinkCache linkCache, VoiceTypeAssetLookup lookup)
+        {
+            _linkCache = linkCache;
+            _lookup = lookup;
+            _mods = [.. linkCache.PriorityOrder];
+            _lists = new (FormKey[], FormKey[])[_mods.Length];
+        }
+
+        public int Count => _mods.Length;
+
+        public void Build(int start, int end)
+        {
+            for (var i = start; i < end; i++)
+            {
+                var mod = _mods[i];
+                _lists[i] = (
+                    [.. mod.EnumerateMajorRecords<INpcGetter>().Select(n => n.FormKey)
+                        .Concat(mod.EnumerateMajorRecords<ITalkingActivatorGetter>().Select(t => t.FormKey))],
+                    [.. mod.EnumerateMajorRecords<IDialogResponsesGetter>().Select(r => r.FormKey)]);
+            }
+        }
+
+        public object Seal()
+        {
+            // Each speaker a bit of a set, and each response once.
+            var speakerIndex = new Dictionary<FormKey, int>();
+            foreach (var (speakers, _) in _lists)
+            {
+                foreach (var speaker in speakers) speakerIndex.TryAdd(speaker, speakerIndex.Count);
+            }
+            var responses = new HashSet<FormKey>();
+            foreach (var (_, ofMod) in _lists) responses.UnionWith(ofMod);
+            return new Planned(_linkCache, _lookup, speakerIndex, [.. responses]);
+        }
+    }
+
+    /// <summary>The cache's second stage: its parts are the load order's dialog responses.</summary>
     public sealed class Planned : ICachePlan
     {
         private readonly ILinkCache _linkCache;
         private readonly VoiceTypeAssetLookup _lookup;
-        private readonly Dictionary<FormKey, int> _speakerIndex = [];
+        private readonly Dictionary<FormKey, int> _speakerIndex;
         private readonly FormKey[] _responses;
         private readonly (ModKey Plugin, SpeakerSet Speakers)?[] _found;
 
-        public Planned(ILinkCache linkCache, VoiceTypeAssetLookup lookup)
+        public Planned(ILinkCache linkCache, VoiceTypeAssetLookup lookup, Dictionary<FormKey, int> speakerIndex, FormKey[] responses)
         {
             _linkCache = linkCache;
             _lookup = lookup;
-            // Who can speak: the load order's NPCs and talking activators, each a bit of a set.
-            foreach (var speaker in linkCache.PriorityOrder.WinningOverrides<INpcGetter>().Select(n => n.FormKey)
-                         .Concat(linkCache.PriorityOrder.WinningOverrides<ITalkingActivatorGetter>().Select(t => t.FormKey)))
-            {
-                _speakerIndex.TryAdd(speaker, _speakerIndex.Count);
-            }
-            _responses = [.. linkCache.PriorityOrder.SelectMany(m => m.EnumerateMajorRecords<IDialogResponsesGetter>()).Select(r => r.FormKey).Distinct()];
+            _speakerIndex = speakerIndex;
+            _responses = responses;
             _found = new (ModKey, SpeakerSet)?[_responses.Length];
         }
 
