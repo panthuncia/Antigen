@@ -87,7 +87,7 @@ public sealed class RedundantPackageAnalyzer : IContextualRecordAnalyzer<INpcGet
             }
 
             // Check if the new package is subsumed by the existing packages
-            if (packageTimespans.All(packageTimespan => timespans.Any(packageTimespan.IsSubsumedBy)))
+            if (Subsumed(packageTimespans, timespans, package.ScheduleDurationInMinutes))
             {
                 param.AddTopic(
                     RedundantPackage.Format(package));
@@ -105,6 +105,86 @@ public sealed class RedundantPackageAnalyzer : IContextualRecordAnalyzer<INpcGet
                 timespans.AddRange(packageTimespans);
             }
         }
+    }
+
+    /// <summary>
+    /// Whether each of a package's spans is subsumed by one of those kept (<see cref="PackageTimeSpan.IsSubsumedBy"/>).
+    /// All of a package's spans end as long after they start, so each span kept covers a rectangle of the hours and
+    /// minutes this package's spans start at: these are marked on a grid of the day, once for the package, rather than
+    /// each span compared with each kept (an NPC's packages running at any time are 1,440 spans each).
+    /// </summary>
+    private static bool Subsumed(List<PackageTimeSpan> spans, List<PackageTimeSpan> kept, int duration)
+    {
+        if (kept.Count == 0) return spans.Count == 0;
+
+        var hours = (duration - 1) / 60 % 24;
+        var minutes = (duration - 1) % 60;
+        // A span going on into the next day is subsumed only by one that does too, with all four bounds; one that
+        // doesn't, by one going on into the next day starting no later, or one that doesn't with all four bounds.
+        var nextDay = new StartGrid();
+        var sameDay = new StartGrid();
+        foreach (var other in kept)
+        {
+            if (other.ExtendsToNextDay)
+            {
+                nextDay.Add(other.Start.Hour, other.End.Hour - hours, other.Start.Minute, other.End.Minute - minutes);
+                sameDay.Add(other.Start.Hour, int.MaxValue, other.Start.Minute, int.MaxValue);
+            }
+            else
+            {
+                sameDay.Add(other.Start.Hour, other.End.Hour - hours, other.Start.Minute, other.End.Minute - minutes);
+            }
+        }
+        nextDay.Seal();
+        sameDay.Seal();
+
+        foreach (var span in spans)
+        {
+            var subsumed = StartGrid.Holds(span.Start.Hour, span.Start.Minute)
+                ? (span.ExtendsToNextDay ? nextDay : sameDay).Covers(span.Start.Hour, span.Start.Minute)
+                : kept.Any(span.IsSubsumedBy);
+            if (!subsumed) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The starts of the day (hour and minute) covered by rectangles, counted with a two-dimensional prefix sum.</summary>
+    private sealed class StartGrid
+    {
+        private const int Hours = 24;
+        private const int Minutes = 60;
+        private readonly int[,] _counts = new int[Hours + 1, Minutes + 1];
+
+        public static bool Holds(int hour, int minute) => hour is >= 0 and < Hours && minute is >= 0 and < Minutes;
+
+        /// <summary>Covers the starts from <paramref name="firstHour"/> to <paramref name="lastHour"/> and the minutes likewise, inclusive.</summary>
+        public void Add(int firstHour, int lastHour, int firstMinute, int lastMinute)
+        {
+            firstHour = Math.Max(firstHour, 0);
+            lastHour = Math.Min(lastHour, Hours - 1);
+            firstMinute = Math.Max(firstMinute, 0);
+            lastMinute = Math.Min(lastMinute, Minutes - 1);
+            if (firstHour > lastHour || firstMinute > lastMinute) return;
+            _counts[firstHour, firstMinute]++;
+            _counts[firstHour, lastMinute + 1]--;
+            _counts[lastHour + 1, firstMinute]--;
+            _counts[lastHour + 1, lastMinute + 1]++;
+        }
+
+        public void Seal()
+        {
+            for (var h = 0; h <= Hours; h++)
+            {
+                for (var m = 0; m <= Minutes; m++)
+                {
+                    if (h > 0) _counts[h, m] += _counts[h - 1, m];
+                    if (m > 0) _counts[h, m] += _counts[h, m - 1];
+                    if (h > 0 && m > 0) _counts[h, m] -= _counts[h - 1, m - 1];
+                }
+            }
+        }
+
+        public bool Covers(int hour, int minute) => _counts[hour, minute] > 0;
     }
 
     public IEnumerable<Func<INpcGetter, object?>> FieldsOfInterest()
