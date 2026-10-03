@@ -16,7 +16,7 @@
       <PackageReference Include="Mutagen.Bethesda.FormKeys.SkyrimSE" />
       <PackageReference Include="Mutagen.Bethesda.Skyrim" />
       <PackageReference Include="Autofac" />
-      <PackageReference Include="Mutagen.Bethesda.Autofac" />
+      <PackageReference Include="Noggog.Autofac" />
       <PackageReference Include="GitVersion.MsBuild">
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
