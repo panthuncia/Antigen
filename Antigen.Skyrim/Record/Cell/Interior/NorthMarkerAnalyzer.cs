@@ -2,6 +2,7 @@
 using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
+using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior;
@@ -24,6 +25,9 @@ public class NorthMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUses
 
     public IEnumerable<TopicDefinition> Topics { get; } = [NoNorthMarker, MoreThanOneNorthMarker];
 
+    // Each read of the FormKeys' property makes a new link: it's read once.
+    private static readonly FormKey NorthMarker = FormKeys.SkyrimSE.Skyrim.Static.NorthMarker.FormKey;
+
     public void AnalyzeRecord(ContextualRecordAnalyzerParams<ICellGetter> param)
     {
         var cell = param.Record;
@@ -33,7 +37,7 @@ public class NorthMarkerAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUses
         var northMarkers = param.ResolveCache<ICellPlacedCache>().Placed(cell)
             .OfType<IPlacedObjectGetter>()
             .Where(placed => placed.IsDeleted == false)
-            .Where(placed => placed.Base.FormKey == FormKeys.SkyrimSE.Skyrim.Static.NorthMarker.FormKey)
+            .Where(placed => placed.Base.FormKey == NorthMarker)
             .ToArray();
 
         if (northMarkers.Length == 0)
