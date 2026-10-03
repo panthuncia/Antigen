@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
 using Antigen.SDK.Caches;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -108,17 +108,18 @@ public sealed class SpeakerVoices
 
     private static readonly SpeakerSet None = new([], [], [], null);
 
-    // The sets of frozen containers, which the lookup shares among many responses (all the default voices, for one
-    // without conditions): each made once.
-    private readonly ConditionalWeakTable<VoiceContainer, SpeakerSet> _shared = new();
+    // The sets of frozen containers, which the lookup shares among the responses alike (all the default voices, for
+    // one without conditions): each made once, by reference. Kept as long as the lookup keeps the containers, so not
+    // weakly (a weak table takes a lock to add to, which every thread asking at first waited on).
+    private readonly ConcurrentDictionary<VoiceContainer, Lazy<SpeakerSet>> _shared = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>The speakers <paramref name="voices"/> holds: none for null.</summary>
     public SpeakerSet Of(VoiceContainer? voices)
     {
         if (voices is null || voices.Voices.Count == 0) return None;
         if (!voices.IsFrozen) return Make(voices);
-        if (_shared.TryGetValue(voices, out var made)) return made;
-        return _shared.GetValue(voices, Make);
+        if (_shared.TryGetValue(voices, out var made)) return made.Value;
+        return _shared.GetOrAdd(voices, new Lazy<SpeakerSet>(() => Make(voices), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
     }
 
     private SpeakerSet Make(VoiceContainer voices)
