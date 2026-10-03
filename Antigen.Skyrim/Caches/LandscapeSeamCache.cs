@@ -66,7 +66,36 @@ public sealed class LandscapeEdges
     public Exception? Failed { get; init; }
 
     /// <summary>A landscape's edges, decoded from it. Throws as decoding it does.</summary>
+    private static readonly Quadrant[] QuadrantOrder = Enum.GetValues<Quadrant>();
+
+    /// <summary>
+    /// A landscape's edges, its texture layers' read from their points rather than from each layer's decoded grid (a
+    /// landscape has about twenty). The same as <see cref="OfDecoded"/>. Throws as decoding it does.
+    /// </summary>
     public static LandscapeEdges Of(ILandscapeGetter landscape, ModKey plugin)
+    {
+        var heights = landscape.VertexHeightMap?.Decode();
+        var colors = landscape.VertexColors ?? LandscapeSeamAnalyzer.DefaultVertexColors;
+        var byQuadrant = new List<IBaseLayerGetter>[QuadrantOrder.Length];
+        foreach (var layer in landscape.Layers)
+        {
+            // As DecodeQuadrant: a layer without a header is in no quadrant.
+            if (layer.Header is not { } header) continue;
+            var at = Array.IndexOf(QuadrantOrder, header.Quadrant);
+            if (at >= 0) (byQuadrant[at] ??= []).Add(layer);
+        }
+        return new LandscapeEdges
+        {
+            Plugin = plugin,
+            Landscape = landscape.FormKey,
+            Heights = heights is null ? null : Edges(heights, static e => e),
+            Colors = Edges(colors, static e => e),
+            Quadrants = [.. QuadrantOrder.Select((q, i) => QuadrantEdges.Of(q, byQuadrant[i] ?? []))],
+        };
+    }
+
+    /// <summary>A landscape's edges, read from its decoded grids (<see cref="LandscapeExtensions.QuadrantData"/>).</summary>
+    public static LandscapeEdges OfDecoded(ILandscapeGetter landscape, ModKey plugin)
     {
         var heights = landscape.VertexHeightMap?.Decode();
         var colors = landscape.VertexColors ?? LandscapeSeamAnalyzer.DefaultVertexColors;
@@ -76,7 +105,7 @@ public sealed class LandscapeEdges
             Landscape = landscape.FormKey,
             Heights = heights is null ? null : Edges(heights, static e => e),
             Colors = Edges(colors, static e => e),
-            Quadrants = [.. Enum.GetValues<Quadrant>().Select(q => QuadrantEdges.Of(landscape.Layers.DecodeQuadrant(q)))],
+            Quadrants = [.. QuadrantOrder.Select(q => QuadrantEdges.Of(landscape.Layers.DecodeQuadrant(q)))],
         };
     }
 
@@ -93,6 +122,64 @@ public sealed class QuadrantEdges
 
     /// <summary>For each layer, its opacity's edge in each direction; null for an edge of all zeros.</summary>
     public required float[]?[][] Opacity { get; init; }
+
+    /// <summary>
+    /// A quadrant's layers' edges, from their points: as <see cref="LandscapeExtensions.QuadrantData"/> decodes them (each
+    /// alpha layer's opacity, then the base layer's, what the others leave), without a grid for each.
+    /// </summary>
+    public static QuadrantEdges Of(Quadrant quadrant, IEnumerable<IBaseLayerGetter> layers)
+    {
+        const int size = 17;
+        var baseTexture = LandscapeExtensions.DefaultTexture;
+        var textures = new List<IFormLinkGetter<ILandscapeTextureGetter>>();
+        var opacity = new List<float[]?[]>();
+        foreach (var layer in layers)
+        {
+            if (layer.Header == null)
+                throw new ArgumentException("Layer header should not be null");
+            var texture = layer.Header.Texture.IsNull ? LandscapeExtensions.DefaultTexture : layer.Header.Texture;
+            if (layer is not IAlphaLayerGetter alpha)
+            {
+                baseTexture = texture;
+                continue;
+            }
+            if (alpha.AlphaLayerData == null) continue;
+            // By direction: north the top row (y = 16), east the right column (x = 16), south and west the first; a point
+            // set twice keeps the last, as in the grid.
+            var edges = new float[]?[4];
+            foreach (var point in alpha.AlphaLayerData)
+            {
+                var (x, y) = (point.Position % size, point.Position / size);
+                if (y >= size) throw new IndexOutOfRangeException($"Alpha layer point {point.Position} is outside its quadrant.");
+                if (y == size - 1) (edges[(int)LandscapeSeamAnalyzer.Direction.North] ??= new float[size])[x] = point.Opacity;
+                if (x == size - 1) (edges[(int)LandscapeSeamAnalyzer.Direction.East] ??= new float[size])[y] = point.Opacity;
+                if (y == 0) (edges[(int)LandscapeSeamAnalyzer.Direction.South] ??= new float[size])[x] = point.Opacity;
+                if (x == 0) (edges[(int)LandscapeSeamAnalyzer.Direction.West] ??= new float[size])[y] = point.Opacity;
+            }
+            for (var d = 0; d < edges.Length; d++)
+            {
+                if (edges[d] is { } edge && Array.TrueForAll(edge, static o => o == 0)) edges[d] = null;
+            }
+            textures.Add(texture);
+            opacity.Add(edges);
+        }
+        // The base layer: what the alpha layers leave, summed as Enumerable.Sum sums floats (in a double).
+        var baseEdges = new float[]?[4];
+        for (var d = 0; d < baseEdges.Length; d++)
+        {
+            var edge = new float[size];
+            for (var i = 0; i < size; i++)
+            {
+                var sum = 0d;
+                foreach (var layer in opacity) sum += layer[d]?[i] ?? 0f;
+                edge[i] = Math.Max(0.0f, 1.0f - (float)sum);
+            }
+            baseEdges[d] = Array.TrueForAll(edge, static o => o == 0) ? null : edge;
+        }
+        textures.Add(baseTexture);
+        opacity.Add(baseEdges);
+        return new QuadrantEdges { Quadrant = quadrant, Textures = textures, Opacity = [.. opacity] };
+    }
 
     public static QuadrantEdges Of(LandscapeExtensions.QuadrantData quadrant) => new()
     {
