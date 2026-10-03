@@ -33,13 +33,13 @@ public class LandscapeSeamCacheProvider : IPartitionedCacheConstructor, IUsesCac
 {
     public Type CacheType => typeof(ILandscapeSeamCache);
 
-    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache), typeof(IExteriorCellCache)];
 
     public object Construct(ILinkCache linkCache, IProvideCaches provideCaches) => Plan(linkCache, provideCaches).BuildAll();
 
     /// <summary>A part for each exterior cell of every worldspace.</summary>
     public ICachePlan Plan(ILinkCache linkCache, IProvideCaches provideCaches) =>
-        new LandscapeSeamCache.Planned(linkCache, provideCaches.Resolve<ILinkUsageCache>());
+        new LandscapeSeamCache.Planned(linkCache, provideCaches.Resolve<ILinkUsageCache>(), provideCaches.Resolve<IExteriorCellCache>());
 }
 
 /// <summary>
@@ -240,17 +240,20 @@ public class LandscapeSeamCache : ILandscapeSeamCache
         // Whether a worldspace has any border region; asked of every cell in it, so found once for each.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<FormKey, bool> _hasBorder = new();
 
-        public Planned(ILinkCache linkCache, ILinkUsageCache usageCache)
+        public Planned(ILinkCache linkCache, ILinkUsageCache usageCache, IExteriorCellCache? exteriorCache = null)
         {
             _linkCache = linkCache;
             _usageCache = usageCache;
-            _exteriors =
-            [
-                .. linkCache.PriorityOrder.SelectMany(m => m.EnumerateMajorRecords<IWorldspaceGetter>())
-                    .Select(w => w.FormKey)
-                    .Distinct()
-                    .SelectMany(w => ImmutableExteriorCellCache.CreateLookupForWorld(linkCache, w).Select(e => (w, e.Key, e.Value))),
-            ];
+            // The exterior cells as the exterior cell cache has them, worked out once; else worked out here.
+            _exteriors = exteriorCache is ImmutableExteriorCellCache made
+                ? [.. made.Exteriors]
+                :
+                [
+                    .. linkCache.PriorityOrder.SelectMany(m => m.EnumerateMajorRecords<IWorldspaceGetter>())
+                        .Select(w => w.FormKey)
+                        .Distinct()
+                        .SelectMany(w => ImmutableExteriorCellCache.CreateLookupForWorld(linkCache, w).Select(e => (w, e.Key, e.Value))),
+                ];
             _inBorder = new bool[_exteriors.Length];
             _edges = new LandscapeEdges?[_exteriors.Length];
         }
