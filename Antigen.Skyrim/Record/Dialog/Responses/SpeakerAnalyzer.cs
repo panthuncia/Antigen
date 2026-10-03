@@ -2,13 +2,13 @@
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
-using Mutagen.Bethesda.Skyrim.Records.Assets.VoiceType;
+using Antigen.Skyrim.Caches;
 
 namespace Antigen.Skyrim.Record.Dialog.Responses;
 
 public class SpeakerAnalyzer : IContextualRecordAnalyzer<IDialogResponsesGetter>, IUsesCaches
 {
-    public IEnumerable<Type> Caches => [typeof(VoiceTypeAssetLookup)];
+    public IEnumerable<Type> Caches => [typeof(ISpeakerCache)];
 
     public static readonly TopicDefinition MissingSpeaker = MutagenTopicBuilder.FromDiscussion(
             392,
@@ -29,9 +29,10 @@ public class SpeakerAnalyzer : IContextualRecordAnalyzer<IDialogResponsesGetter>
     {
         var dialogResponses = param.Record;
 
-        var voiceTypeAssetLookup = param.ResolveCache<VoiceTypeAssetLookup>();
-        var speakers = voiceTypeAssetLookup.GetSpeakers(dialogResponses).ToHashSet();
-        if (speakers.Capacity == 0)
+        // Who can speak each response is worked out once for the load order's winning versions.
+        var speakerCache = param.ResolveCache<ISpeakerCache>();
+        var speakers = speakerCache.For(dialogResponses, param.ModKey);
+        if (speakers.IsEmpty)
         {
             param.AddTopic(
                 MissingSpeaker.Format());
@@ -42,8 +43,8 @@ public class SpeakerAnalyzer : IContextualRecordAnalyzer<IDialogResponsesGetter>
             var sharedInfo = dialogResponses.ResponseData.TryResolve(param.LinkCache);
             if (sharedInfo is null) return;
 
-            var sharedInfoSpeakers = voiceTypeAssetLookup.GetSpeakers(sharedInfo).ToHashSet();
-            if (!speakers.Intersect(sharedInfoSpeakers).Any())
+            var sharedInfoSpeakers = speakerCache.Get(sharedInfo.FormKey) ?? speakerCache.Of(sharedInfo);
+            if (!speakers.Intersects(sharedInfoSpeakers))
             {
                 param.AddTopic(
                     DifferentSpeakerInSharedInfo.Format(sharedInfo));
