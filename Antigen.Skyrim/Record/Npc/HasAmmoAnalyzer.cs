@@ -1,11 +1,15 @@
 using Antigen.SDK.Analyzers;
+using Antigen.SDK.Caches;
 using Antigen.SDK.Topics;
+using Antigen.Skyrim.Caches;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Npc;
 
-public class HasAmmoAnalyzer : IContextualRecordAnalyzer<INpcGetter>
+public class HasAmmoAnalyzer : IContextualRecordAnalyzer<INpcGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILeveledListCache)];
+
     public static readonly TopicDefinition<IWeaponGetter, string> MissingAmmo = MutagenTopicBuilder.FromDiscussion(
             405,
             "Npc is missing ammo",
@@ -23,20 +27,24 @@ public class HasAmmoAnalyzer : IContextualRecordAnalyzer<INpcGetter>
         IWeaponGetter? bow = null;
         IAmmunitionGetter? arrow = null;
         IAmmunitionGetter? bolt = null;
+        // What each leveled item holds is worked out once for the load order, rather than searched again for each NPC.
+        var leveledLists = param.ResolveCache<ILeveledListCache>();
         foreach (var entry in npc.Items)
         {
             var item = entry.Item.Item.TryResolve(param.LinkCache);
 
-            var weapon = item?.FindItem<IWeaponGetter>(param.LinkCache, w =>
+            IWeaponGetter? weapon;
+            IAmmunitionGetter? ammo;
+            if (item is ILeveledItemGetter leveled && leveledLists.TryGetRanged(leveled.FormKey, out var rangedWeapon, out var ammunition))
             {
-                if (w.Data is null) return false;
-
-                return w.Data.AnimationType switch
-                {
-                    WeaponAnimationType.Bow or WeaponAnimationType.Crossbow => true,
-                    _ => false
-                };
-            });
+                weapon = rangedWeapon;
+                ammo = ammunition;
+            }
+            else
+            {
+                weapon = item?.FindItem<IWeaponGetter>(param.LinkCache, LeveledListCache.IsRanged);
+                ammo = item?.FindItem<IAmmunitionGetter>(param.LinkCache, _ => true);
+            }
 
             if (weapon != null)
             {
@@ -51,8 +59,6 @@ public class HasAmmoAnalyzer : IContextualRecordAnalyzer<INpcGetter>
                     crossbow = weapon;
                 }
             }
-
-            var ammo = item?.FindItem<IAmmunitionGetter>(param.LinkCache, _ => true);
 
             if (ammo != null)
             {

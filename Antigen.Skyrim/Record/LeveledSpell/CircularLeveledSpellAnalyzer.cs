@@ -1,18 +1,22 @@
 ﻿using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
+using Antigen.SDK.Caches;
+using Antigen.Skyrim.Caches;
 using Antigen.Skyrim.Util;
 using Mutagen.Bethesda.Skyrim;
 using Noggog;
 
 namespace Antigen.Skyrim.Record.LeveledSpell;
 
-public class CircularLeveledSpellListAnalyzer : IContextualRecordAnalyzer<ILeveledSpellGetter>
+public class CircularLeveledSpellListAnalyzer : IContextualRecordAnalyzer<ILeveledSpellGetter>, IUsesCaches
 {
     public static readonly TopicDefinition CircularLeveledSpell = MutagenTopicBuilder.FromDiscussion(
             231,
             "Circular Leveled Spell",
             Severity.CTD)
         .WithoutFormatting("Leveled Spell contains itself in path {0}");
+
+    public IEnumerable<Type> Caches => [typeof(ILeveledListCache)];
 
     public IEnumerable<TopicDefinition> Topics { get; } = [CircularLeveledSpell];
 
@@ -29,7 +33,7 @@ public class CircularLeveledSpellListAnalyzer : IContextualRecordAnalyzer<ILevel
             }
 
             return [];
-        }, CircularLeveledSpell);
+        }, CircularLeveledSpell, param.ResolveCache<ILeveledListCache>());
     }
     public IEnumerable<Func<ILeveledSpellGetter, object?>> FieldsOfInterest()
     {
