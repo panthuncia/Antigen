@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -5,8 +6,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Quest;
 
-public class StoryManagerQuestAnalyzer : IContextualRecordAnalyzer<IQuestGetter>
+public class StoryManagerQuestAnalyzer : IContextualRecordAnalyzer<IQuestGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition StoryManagerQuestNotAssigned = MutagenTopicBuilder.FromDiscussion(
             254,
             "Story Manager Quest not assigned",

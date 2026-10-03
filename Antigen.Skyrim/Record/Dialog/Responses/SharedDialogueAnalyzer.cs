@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -5,8 +6,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Dialog.Responses;
 
-public class SharedDialogueAnalyzer : IContextualRecordAnalyzer<IDialogResponsesGetter>
+public class SharedDialogueAnalyzer : IContextualRecordAnalyzer<IDialogResponsesGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition ScriptInSharedDialogue = MutagenTopicBuilder.FromDiscussion(
             203,
             "Script In Shared Dialogue",

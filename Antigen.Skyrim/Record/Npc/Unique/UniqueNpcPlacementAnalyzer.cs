@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -6,8 +7,10 @@ using Noggog;
 
 namespace Antigen.Skyrim.Record.Npc.Unique;
 
-public class UniqueNpcPlacementAnalyzer : IContextualRecordAnalyzer<INpcGetter>
+public class UniqueNpcPlacementAnalyzer : IContextualRecordAnalyzer<INpcGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition PlacedNever = MutagenTopicBuilder.FromDiscussion(
             484,
             "Unique NPC Never Placed",

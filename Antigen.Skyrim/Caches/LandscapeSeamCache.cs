@@ -29,12 +29,17 @@ public interface ILandscapeSeamCache
     LandscapeEdges? GetEdges(FormKey worldspace, P2Int point);
 }
 
-public class LandscapeSeamCacheProvider : ICacheConstructor
+public class LandscapeSeamCacheProvider : IPartitionedCacheConstructor, IUsesCaches
 {
     public Type CacheType => typeof(ILandscapeSeamCache);
 
-    public object Construct(ILinkCache linkCache, IProvideCaches provideCaches) =>
-        new LandscapeSeamCache(linkCache, provideCaches.Resolve<ILinkUsageCache>());
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
+    public object Construct(ILinkCache linkCache, IProvideCaches provideCaches) => Plan(linkCache, provideCaches).BuildAll();
+
+    /// <summary>A part for each exterior cell of every worldspace.</summary>
+    public ICachePlan Plan(ILinkCache linkCache, IProvideCaches provideCaches) =>
+        new LandscapeSeamCache.Planned(linkCache, provideCaches.Resolve<ILinkUsageCache>());
 }
 
 /// <summary>
@@ -113,59 +118,21 @@ public sealed class QuadrantEdges
 }
 
 /// <summary>
-/// Made at once, a worldspace at a time and its cells in parallel, from the winning versions: each worldspace's exterior
+/// Made from the winning versions, in a part for each exterior cell (<see cref="Planned"/>): each worldspace's exterior
 /// cells, which of them are in a border region, and their landscapes' edges.
 /// </summary>
 public class LandscapeSeamCache : ILandscapeSeamCache
 {
-    private readonly Dictionary<FormKey, World> _worlds = [];
+    private readonly Dictionary<FormKey, World> _worlds;
 
     private sealed record World(HashSet<P2Int> NearBorder, Dictionary<P2Int, LandscapeEdges> Edges);
 
     public LandscapeSeamCache(ILinkCache linkCache, ILinkUsageCache usageCache)
+        : this(((LandscapeSeamCache)new Planned(linkCache, usageCache).BuildAll())._worlds)
     {
-        var worldspaces = linkCache.PriorityOrder.SelectMany(m => m.EnumerateMajorRecords<IWorldspaceGetter>())
-            .Select(w => w.FormKey)
-            .Distinct()
-            .ToArray();
-        // Whether a worldspace has any border region; asked of every cell in it, so found once for each.
-        var hasBorder = new System.Collections.Concurrent.ConcurrentDictionary<FormKey, bool>();
-        foreach (var worldspace in worldspaces)
-        {
-            var exteriors = ImmutableExteriorCellCache.CreateLookupForWorld(linkCache, worldspace).ToArray();
-            var inBorder = new bool[exteriors.Length];
-            var edges = new LandscapeEdges?[exteriors.Length];
-            Parallel.For(0, exteriors.Length, i =>
-            {
-                if (!exteriors[i].Value.TryResolve(linkCache, out var cell)) return;
-                inBorder[i] = IsInBorderRegion(cell, linkCache, usageCache, hasBorder);
-                if (cell.GetLandscape(linkCache) is not { } landscape) return;
-                var plugin = linkCache.TryResolveSimpleContext(landscape, out var context) ? context.ModKey : landscape.FormKey.ModKey;
-                try
-                {
-                    edges[i] = LandscapeEdges.Of(landscape, plugin);
-                }
-                catch (Exception e)
-                {
-                    edges[i] = new LandscapeEdges { Plugin = plugin, Landscape = landscape.FormKey, Failed = e };
-                }
-            });
-
-            var near = new HashSet<P2Int>();
-            var world = new World(near, []);
-            for (var i = 0; i < exteriors.Length; i++)
-            {
-                if (edges[i] is { } found) world.Edges[exteriors[i].Key] = found;
-                if (!inBorder[i]) continue;
-                var point = exteriors[i].Key;
-                for (var x = -2; x <= 2; x++)
-                {
-                    for (var y = -2; y <= 2; y++) near.Add(point + new P2Int(x, y));
-                }
-            }
-            _worlds[worldspace] = world;
-        }
     }
+
+    private LandscapeSeamCache(Dictionary<FormKey, World> worlds) => _worlds = worlds;
 
     public bool IsNearBorderRegion(FormKey worldspace, P2Int point) =>
         _worlds.TryGetValue(worldspace, out var world) && world.NearBorder.Contains(point);
@@ -173,16 +140,81 @@ public class LandscapeSeamCache : ILandscapeSeamCache
     public LandscapeEdges? GetEdges(FormKey worldspace, P2Int point) =>
         _worlds.TryGetValue(worldspace, out var world) ? world.Edges.GetValueOrDefault(point) : null;
 
-    /// <summary>As <see cref="CellExtensions.IsInBorderRegion"/>, with whether each worldspace has a border region found once.</summary>
-    private static bool IsInBorderRegion(ICellGetter cell, ILinkCache linkCache, ILinkUsageCache usageCache,
-        System.Collections.Concurrent.ConcurrentDictionary<FormKey, bool> hasBorder)
+    /// <summary>The cache being made: its parts are the exterior cells of every worldspace.</summary>
+    public sealed class Planned : ICachePlan
     {
-        if (cell.Regions != null && cell.Regions.Any(r => r.TryResolve(linkCache, out var region) && region.MajorFlags.HasFlag(Region.MajorFlag.BorderRegion)))
-            return true;
-        var world = cell.GetWorldspace(linkCache);
-        if (world == null) return true;
-        return !hasBorder.GetOrAdd(world.FormKey, static (_, a) => a.usageCache.GetUsagesOf<IRegionGetter>(a.world).UsageLinks
-            .Select(r => r.Resolve(a.linkCache))
-            .Any(r => r.MajorFlags.HasFlag(Region.MajorFlag.BorderRegion)), (usageCache, world, linkCache));
+        private readonly ILinkCache _linkCache;
+        private readonly ILinkUsageCache _usageCache;
+        private readonly (FormKey World, P2Int Point, IFormLinkGetter<ICellGetter> Cell)[] _exteriors;
+        private readonly bool[] _inBorder;
+        private readonly LandscapeEdges?[] _edges;
+
+        // Whether a worldspace has any border region; asked of every cell in it, so found once for each.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<FormKey, bool> _hasBorder = new();
+
+        public Planned(ILinkCache linkCache, ILinkUsageCache usageCache)
+        {
+            _linkCache = linkCache;
+            _usageCache = usageCache;
+            _exteriors =
+            [
+                .. linkCache.PriorityOrder.SelectMany(m => m.EnumerateMajorRecords<IWorldspaceGetter>())
+                    .Select(w => w.FormKey)
+                    .Distinct()
+                    .SelectMany(w => ImmutableExteriorCellCache.CreateLookupForWorld(linkCache, w).Select(e => (w, e.Key, e.Value))),
+            ];
+            _inBorder = new bool[_exteriors.Length];
+            _edges = new LandscapeEdges?[_exteriors.Length];
+        }
+
+        public int Count => _exteriors.Length;
+
+        public void Build(int start, int end)
+        {
+            for (var i = start; i < end; i++)
+            {
+                if (!_exteriors[i].Cell.TryResolve(_linkCache, out var cell)) continue;
+                _inBorder[i] = IsInBorderRegion(cell);
+                if (cell.GetLandscape(_linkCache) is not { } landscape) continue;
+                var plugin = _linkCache.TryResolveSimpleContext(landscape, out var context) ? context.ModKey : landscape.FormKey.ModKey;
+                try
+                {
+                    _edges[i] = LandscapeEdges.Of(landscape, plugin);
+                }
+                catch (Exception e)
+                {
+                    _edges[i] = new LandscapeEdges { Plugin = plugin, Landscape = landscape.FormKey, Failed = e };
+                }
+            }
+        }
+
+        public object Seal()
+        {
+            var worlds = new Dictionary<FormKey, World>();
+            for (var i = 0; i < _exteriors.Length; i++)
+            {
+                var (worldspace, point, _) = _exteriors[i];
+                if (!worlds.TryGetValue(worldspace, out var world)) worlds[worldspace] = world = new World([], []);
+                if (_edges[i] is { } found) world.Edges[point] = found;
+                if (!_inBorder[i]) continue;
+                for (var x = -2; x <= 2; x++)
+                {
+                    for (var y = -2; y <= 2; y++) world.NearBorder.Add(point + new P2Int(x, y));
+                }
+            }
+            return new LandscapeSeamCache(worlds);
+        }
+
+        /// <summary>As <see cref="CellExtensions.IsInBorderRegion"/>, with whether each worldspace has a border region found once.</summary>
+        private bool IsInBorderRegion(ICellGetter cell)
+        {
+            if (cell.Regions != null && cell.Regions.Any(r => r.TryResolve(_linkCache, out var region) && region.MajorFlags.HasFlag(Region.MajorFlag.BorderRegion)))
+                return true;
+            var world = cell.GetWorldspace(_linkCache);
+            if (world == null) return true;
+            return !_hasBorder.GetOrAdd(world.FormKey, static (_, a) => a.usageCache.GetUsagesOf<IRegionGetter>(a.world).UsageLinks
+                .Select(r => r.Resolve(a.linkCache))
+                .Any(r => r.MajorFlags.HasFlag(Region.MajorFlag.BorderRegion)), (usageCache: _usageCache, world, linkCache: _linkCache));
+        }
     }
 }

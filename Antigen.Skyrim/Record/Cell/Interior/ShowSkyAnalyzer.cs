@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Antigen.Skyrim.Caches;
@@ -7,8 +8,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior;
 
-public class ShowSkyAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class ShowSkyAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(IExteriorCellCache)];
+
     public static readonly TopicDefinition<IFormLinkNullableGetter<IRegionGetter>, ICellGetter, IPlacedObjectGetter> WrongRegion = MutagenTopicBuilder.FromDiscussion(
             391,
             "Weather/Sky Region Mismatch",

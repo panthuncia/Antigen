@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,8 +10,10 @@ using Noggog;
 
 namespace Antigen.Skyrim.Record.Npc;
 
-public class AmbushAnalyzer : IContextualRecordAnalyzer<INpcGetter>
+public class AmbushAnalyzer : IContextualRecordAnalyzer<INpcGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition AmbushMissingScript = MutagenTopicBuilder.FromDiscussion(
             239,
             "Ambush requires script",

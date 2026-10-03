@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
@@ -7,8 +8,10 @@ using Noggog;
 
 namespace Antigen.Skyrim.Record.Npc;
 
-public class CarryPackageAnalyzer : IContextualRecordAnalyzer<INpcGetter>
+public class CarryPackageAnalyzer : IContextualRecordAnalyzer<INpcGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition CarryPackageWithoutScript = MutagenTopicBuilder.FromDiscussion(
             240,
             "Carry package without script",

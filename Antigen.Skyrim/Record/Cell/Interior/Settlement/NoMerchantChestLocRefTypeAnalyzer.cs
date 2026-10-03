@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -5,8 +6,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior.Settlement;
 
-public class NoMerchantChestLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class NoMerchantChestLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition<IPlacedObjectGetter> NoMerchantChestLocRefType = MutagenTopicBuilder.FromDiscussion(
             296,
             "No Merchant Chest Location Reference Type",
