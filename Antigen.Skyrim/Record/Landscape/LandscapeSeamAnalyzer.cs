@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using System.Runtime.ExceptionServices;
@@ -10,8 +11,10 @@ using Noggog;
 
 namespace Antigen.Skyrim.Record.Landscape;
 
-public class LandscapeSeamAnalyzer : IContextualRecordAnalyzer<ILandscapeGetter>
+public class LandscapeSeamAnalyzer : IContextualRecordAnalyzer<ILandscapeGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILandscapeSeamCache)];
+
     public enum Direction
     {
         North,

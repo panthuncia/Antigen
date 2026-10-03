@@ -1,4 +1,5 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Antigen.Skyrim.Caches;
 using Mutagen.Bethesda.Plugins;
@@ -6,8 +7,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Placed.Npc;
 
-public class HasHouseKeyAnalyzer : IContextualRecordAnalyzer<IPlacedNpcGetter>
+public class HasHouseKeyAnalyzer : IContextualRecordAnalyzer<IPlacedNpcGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(IExteriorCellCache)];
+
     public static readonly TopicDefinition<INpcGetter, ICellGetter, IPlacedObjectGetter, IKeyGetter> MissingHouseKey = MutagenTopicBuilder.FromDiscussion(
             472,
             "Npc Missing House Key",

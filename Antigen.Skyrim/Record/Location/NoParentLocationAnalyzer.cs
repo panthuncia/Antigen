@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
@@ -6,8 +7,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Location;
 
-public class NoParentLocationAnalyzer : IContextualRecordAnalyzer<ILocationGetter>
+public class NoParentLocationAnalyzer : IContextualRecordAnalyzer<ILocationGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition NoParentLocation = MutagenTopicBuilder.FromDiscussion(
             233,
             "No Parent Location",

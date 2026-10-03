@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Antigen.Skyrim.Util;
@@ -6,8 +7,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Armor;
 
-public class TemperAnalyzerArmor : IContextualRecordAnalyzer<IArmorGetter>
+public class TemperAnalyzerArmor : IContextualRecordAnalyzer<IArmorGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition NoTemper = MutagenTopicBuilder.FromDiscussion(
             572,
             "No armor temper recipe",

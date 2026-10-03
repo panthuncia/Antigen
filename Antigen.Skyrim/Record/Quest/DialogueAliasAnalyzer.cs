@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -6,8 +7,10 @@ using Noggog;
 
 namespace Antigen.Skyrim.Record.Quest;
 
-public class DialogueAliasAnalyzer : IContextualRecordAnalyzer<IQuestGetter>
+public class DialogueAliasAnalyzer : IContextualRecordAnalyzer<IQuestGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition<string?> InvalidDialogueAlias = MutagenTopicBuilder.FromDiscussion(
             252,
             "Invalid Dialogue Alias",

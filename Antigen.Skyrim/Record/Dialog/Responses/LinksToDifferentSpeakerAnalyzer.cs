@@ -1,4 +1,5 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Skyrim.Records.Assets.VoiceType;
@@ -6,8 +7,10 @@ using Noggog;
 
 namespace Antigen.Skyrim.Record.Dialog.Responses;
 
-public class LinksToDifferentSpeakerAnalyzer : IContextualRecordAnalyzer<IDialogTopicGetter>
+public class LinksToDifferentSpeakerAnalyzer : IContextualRecordAnalyzer<IDialogTopicGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(VoiceTypeAssetLookup)];
+
     public static readonly TopicDefinition<IDialogTopicGetter> LinksToDifferentSpeaker = MutagenTopicBuilder.FromDiscussion(
             468,
             "Links to Different Speaker",

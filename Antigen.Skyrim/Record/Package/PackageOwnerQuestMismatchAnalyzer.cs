@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
@@ -6,8 +7,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Package;
 
-public class PackageOwnerQuestMismatchAnalyzer : IContextualRecordAnalyzer<IPackageGetter>
+public class PackageOwnerQuestMismatchAnalyzer : IContextualRecordAnalyzer<IPackageGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition<IFormLinkGetter<INpcGetter>> PackageWithOwnerQuestUsedInNpc = MutagenTopicBuilder.FromDiscussion(
             535,
             "Package with Owner Quest used directly in NPC",

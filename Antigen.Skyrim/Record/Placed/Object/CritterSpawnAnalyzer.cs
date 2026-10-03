@@ -1,12 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Antigen.Skyrim.Caches;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Placed.Object;
 
-public class CritterSpawnAnalyzer : IContextualRecordAnalyzer<IPlacedObjectGetter>
+public class CritterSpawnAnalyzer : IContextualRecordAnalyzer<IPlacedObjectGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(IExteriorCellCache)];
+
     private const string CritterSpawnScriptName = "CritterSpawn";
     private const string CritterSpawnScriptName01 = "CritterSpawn01";
     private const string CritterSpawnScriptName02 = "CritterSpawn02";

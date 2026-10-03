@@ -1,12 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Skyrim.Records.Assets.VoiceType;
 
 namespace Antigen.Skyrim.Record.Dialog.Responses;
 
-public class SpeakerAnalyzer : IContextualRecordAnalyzer<IDialogResponsesGetter>
+public class SpeakerAnalyzer : IContextualRecordAnalyzer<IDialogResponsesGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(VoiceTypeAssetLookup)];
+
     public static readonly TopicDefinition MissingSpeaker = MutagenTopicBuilder.FromDiscussion(
             392,
             "Missing Speaker",

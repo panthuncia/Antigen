@@ -1,4 +1,5 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Cache;
@@ -7,8 +8,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Npc.Unique;
 
-public class MultipleBedOwnershipAnalyzer : IContextualRecordAnalyzer<INpcGetter>
+public class MultipleBedOwnershipAnalyzer : IContextualRecordAnalyzer<INpcGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition<int> NpcOwnsMultipleBeds = MutagenTopicBuilder.FromDiscussion(
             493,
             "Unique Npc Owns Multiple Beds",

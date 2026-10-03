@@ -1,3 +1,4 @@
+using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
@@ -6,8 +7,10 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Location;
 
-public class RefTypeSettlementHouseAnalyzer : IContextualRecordAnalyzer<ILocationGetter>
+public class RefTypeSettlementHouseAnalyzer : IContextualRecordAnalyzer<ILocationGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+
     public static readonly TopicDefinition NoHouseContainerRefType = MutagenTopicBuilder.FromDiscussion(
             235,
             "No House Container Ref Type",
