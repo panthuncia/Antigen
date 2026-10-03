@@ -9,7 +9,7 @@ namespace Antigen.Skyrim.Record.Placed.Npc;
 
 public class HasHouseKeyAnalyzer : IContextualRecordAnalyzer<IPlacedNpcGetter>, IUsesCaches
 {
-    public IEnumerable<Type> Caches => [typeof(IExteriorCellCache)];
+    public IEnumerable<Type> Caches => [typeof(IExteriorCellCache), typeof(ICellPlacedCache)];
 
     public static readonly TopicDefinition<INpcGetter, ICellGetter, IPlacedObjectGetter, IKeyGetter> MissingHouseKey = MutagenTopicBuilder.FromDiscussion(
             472,
@@ -33,7 +33,7 @@ public class HasHouseKeyAnalyzer : IContextualRecordAnalyzer<IPlacedNpcGetter>, 
         if (cell is null) return;
 
         var missingKeys = new HashSet<FormKey>();
-        foreach (var exteriorDoor in cell.GetExteriorDoorsGoingIntoInteriorRecursively(param.LinkCache))
+        foreach (var exteriorDoor in param.ResolveCache<ICellPlacedCache>().ExteriorDoorsInto(cell))
         {
             var interiorDoor = exteriorDoor.TeleportDestination?.Door.TryResolve(param.LinkCache);
             if (interiorDoor is null) continue;

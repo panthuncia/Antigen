@@ -1,11 +1,15 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell;
 
-public class NpcNotInCellFactionAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class NpcNotInCellFactionAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<INpcGetter, ICellGetter, IFactionGetter> NpcNotInCellFaction = MutagenTopicBuilder.FromDiscussion(
             208,
             "Npc Not In Cell Faction",
@@ -23,7 +27,7 @@ public class NpcNotInCellFactionAnalyzer : IContextualRecordAnalyzer<ICellGetter
 
         var isInn = param.LinkCache.TryResolve<ILocationGetter>(cell.Location.FormKey, out var location) && location.IsInnLocation();
 
-        foreach (var placedNpc in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedNpcGetter>())
+        foreach (var placedNpc in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedNpcGetter>())
         {
             if (placedNpc.IsDeleted) continue;
 

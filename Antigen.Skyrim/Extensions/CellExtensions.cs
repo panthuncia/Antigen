@@ -185,7 +185,8 @@ public static class CellExtensions
     /// <param name="cell">Interior cell to start from</param>
     /// <param name="linkCache">Link cache to resolve cell links</param>
     /// <returns>All doors leading to an exterior cell</returns>
-    public static IEnumerable<IPlacedObjectGetter> GetExteriorDoorsGoingIntoInteriorRecursively(this ICellGetter cell, ILinkCache linkCache)
+    /// <param name="placed">Where to read the cells' placed records, rather than reading each anew.</param>
+    public static IEnumerable<IPlacedObjectGetter> GetExteriorDoorsGoingIntoInteriorRecursively(this ICellGetter cell, ILinkCache linkCache, ICellPlacedCache? placed = null)
     {
         HashSet<FormKey> visitedCells = [cell.FormKey];
         var queue = new Queue<ICellGetter>();
@@ -195,7 +196,7 @@ public static class CellExtensions
         {
             var currentCell = queue.Dequeue();
 
-            foreach (var placedObject in currentCell.GetAllPlaced(linkCache).OfType<IPlacedObjectGetter>())
+            foreach (var placedObject in (placed?.Placed(currentCell) ?? currentCell.GetAllPlaced(linkCache)).OfType<IPlacedObjectGetter>())
             {
                 // Has a teleport destination
                 if (placedObject.TeleportDestination is null || placedObject.TeleportDestination.Door.IsNull) continue;

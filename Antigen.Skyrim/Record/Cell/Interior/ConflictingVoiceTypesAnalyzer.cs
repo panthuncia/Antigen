@@ -1,12 +1,16 @@
-﻿using Antigen.SDK.Analyzers;
+﻿using Antigen.Skyrim.Caches;
+using Antigen.SDK.Caches;
+using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 
 namespace Antigen.Skyrim.Record.Cell.Interior;
 
-public class ConflictingVoiceTypesAnalyzer : IContextualRecordAnalyzer<ICellGetter>
+public class ConflictingVoiceTypesAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
+    public IEnumerable<Type> Caches => [typeof(ICellPlacedCache)];
+
     public static readonly TopicDefinition<ICellGetter, int, IFormLinkGetter<IVoiceTypeGetter>> NpcsWithSameVoiceType = MutagenTopicBuilder.FromDiscussion(
             260,
             "NPCs with the same voice type in same cell",
@@ -21,7 +25,7 @@ public class ConflictingVoiceTypesAnalyzer : IContextualRecordAnalyzer<ICellGett
         if (cell.IsExteriorCell()) return;
 
         var npcVoiceTypes = new Dictionary<IFormLinkGetter<INpcGetter>, IFormLinkGetter<IVoiceTypeGetter>>();
-        foreach (var placedNpc in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedNpcGetter>())
+        foreach (var placedNpc in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedNpcGetter>())
         {
             if (placedNpc.IsDeleted) continue;
             if (!param.LinkCache.TryResolve<INpcGetter>(placedNpc.Base.FormKey, out var npc)) continue;

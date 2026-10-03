@@ -10,7 +10,7 @@ namespace Antigen.Skyrim.Record.Cell.Interior;
 
 public class ShowSkyAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
-    public IEnumerable<Type> Caches => [typeof(IExteriorCellCache)];
+    public IEnumerable<Type> Caches => [typeof(IExteriorCellCache), typeof(ICellPlacedCache)];
 
     public static readonly TopicDefinition<IFormLinkNullableGetter<IRegionGetter>, ICellGetter, IPlacedObjectGetter> WrongRegion = MutagenTopicBuilder.FromDiscussion(
             391,
@@ -40,7 +40,7 @@ public class ShowSkyAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCach
             param.AddTopic(ShowSkyWithoutRegion.Format());
         }
 
-        foreach (var exteriorDoor in cell.GetExteriorDoorsGoingIntoInteriorRecursively(param.LinkCache)) {
+        foreach (var exteriorDoor in param.ResolveCache<ICellPlacedCache>().ExteriorDoorsInto(cell)) {
             var exteriorCell = exteriorDoor.GetCell(param.LinkCache, param.ResolveCache<IExteriorCellCache>());
             if (exteriorCell?.Regions is null) continue;
 

@@ -1,3 +1,4 @@
+using Antigen.Skyrim.Caches;
 using Antigen.SDK.Caches;
 using Antigen.SDK.Analyzers;
 using Antigen.SDK.Topics;
@@ -8,7 +9,7 @@ namespace Antigen.Skyrim.Record.Cell.Interior.Settlement;
 
 public class NoMerchantChestLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICellGetter>, IUsesCaches
 {
-    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache)];
+    public IEnumerable<Type> Caches => [typeof(ILinkUsageCache), typeof(ICellPlacedCache)];
 
     public static readonly TopicDefinition<IPlacedObjectGetter> NoMerchantChestLocRefType = MutagenTopicBuilder.FromDiscussion(
             296,
@@ -31,7 +32,7 @@ public class NoMerchantChestLocRefTypeAnalyzer : IContextualRecordAnalyzer<ICell
         // Skip non-settlement cells
         if (!cell.IsSettlementCell(param.LinkCache)) return;
 
-        foreach (var placedObject in cell.GetAllPlaced(param.LinkCache).OfType<IPlacedObjectGetter>())
+        foreach (var placedObject in param.ResolveCache<ICellPlacedCache>().Placed(cell).OfType<IPlacedObjectGetter>())
         {
             if (placedObject.IsDeleted) continue;
 
